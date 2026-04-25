@@ -144,7 +144,20 @@ git push -u origin main
 [auth]
 salt = "abc123...（Step 1で生成した値）"
 hash = "def456...（Step 1で生成した値）"
+
+[email_alert]
+enabled = true
+to_addr = "masaya.happylife@gmail.com"
+smtp_host = "smtp.gmail.com"
+smtp_port = 587
+smtp_user = "送信用Gmailアドレス"
+smtp_password = "Googleアカウントのアプリパスワード"
+from_addr = "送信用Gmailアドレス"
+threshold_yen = 0.3
+cooldown_minutes = 60
 ```
+
+※ メール通知が不要な場合は `[email_alert]` を省略できます。Gmailを使う場合、通常のログインパスワードではなく **Googleのアプリパスワード** を `smtp_password` に設定してください。
 
 4. 「**Save**」→「**Deploy!**」
 

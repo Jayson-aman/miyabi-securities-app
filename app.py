@@ -89,6 +89,7 @@ from interval_predictor import (
     predict_all_intervals_compact,
     get_all_reasonings,
 )
+from fx_email_alerts import check_and_send_fx_move_alerts
 from chart_patterns import (
     analyze_ticker_patterns,
     PATTERN_DETECTORS,
@@ -3392,6 +3393,8 @@ if page == "📊 ダッシュボード":
     with st.spinner("19銘柄の15分間隔予測を生成中..."):
         full_tables, compact_tables, reasonings = _cached_interval_table()
 
+    fx_mail_status = check_and_send_fx_move_alerts(compact_tables, reasonings)
+
     use_tables = compact_tables if "コンパクト" in view_mode else full_tables
 
     if not use_tables:
@@ -3465,6 +3468,12 @@ if page == "📊 ダッシュボード":
                             """, unsafe_allow_html=True)
 
         st.caption("💡 売値(Bid)= 売却時の価格、買値(Ask)= 購入時の価格。スプレッドは各銘柄の標準的な参考値で算出。実際の値はFX/CFD業者により異なります。予測根拠はモメンタム・EMA勾配・RSI・ボラティリティ・銘柄固有のマクロ要因を統合したものです。")
+        if fx_mail_status.get("sent"):
+            st.success(f"📧 FX 0.3円アラートを {len(fx_mail_status['sent'])} 件メール送信しました。")
+        elif fx_mail_status.get("candidates") and not fx_mail_status.get("configured"):
+            st.info("📧 FX 0.3円アラート候補があります。メール送信には Streamlit Secrets の SMTP設定が必要です。")
+        elif fx_mail_status.get("errors"):
+            st.warning(f"📧 FXメール送信に失敗しました: {fx_mail_status['errors'][0].get('error', 'unknown error')}")
 
     st.divider()
 
@@ -3703,7 +3712,7 @@ elif page == "💴 円相場 総合分析":
                         return "color: #1565C0; font-weight: 600;"
                     return ""
 
-                styled = df_cat.style.applymap(_color_bias, subset=["現在バイアス", "JPY影響"])
+                styled = df_cat.style.map(_color_bias, subset=["現在バイアス", "JPY影響"])
                 st.dataframe(styled, use_container_width=True, hide_index=True)
 
         # ═══ 上位影響要因 ═══
