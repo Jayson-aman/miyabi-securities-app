@@ -3632,14 +3632,22 @@ elif page == "💴 円相場 総合分析":
         </div>
         """, unsafe_allow_html=True)
 
-        spot_ctx = yen_analysis.get("spot_context") or {}
+        spot_ctx = yen_analysis.get("spot_context")
+        spot_ctx = spot_ctx if isinstance(spot_ctx, dict) else {}
         recon = yen_analysis.get("reconciliation") or {}
         broker_lens = yen_analysis.get("broker_lens") or {}
+
+        if yen_analysis.get("spot_context") is None:
+            st.warning(
+                "ドル円の**実勢データを取得できませんでした**（yfinance の一時障害・取得制限など）。"
+                "時間をおいて「全ファクター取得・分析」を再実行してください。"
+            )
 
         if spot_ctx:
             c_s1, c_s2, c_s3, c_s4 = st.columns(4)
             with c_s1:
-                st.metric("実勢: 直近1時間 Δ円", f"{spot_ctx.get('change_1h_yen', 0):+.3f}")
+                v1 = spot_ctx.get("change_1h_yen")
+                st.metric("実勢: 直近1時間 Δ円", f"{v1:+.3f}" if v1 is not None else "—")
             with c_s2:
                 v6 = spot_ctx.get("change_6h_yen")
                 st.metric("実勢: 直近6時間 Δ円", f"{v6:+.3f}" if v6 is not None else "—")
@@ -3649,6 +3657,11 @@ elif page == "💴 円相場 総合分析":
             with c_s4:
                 vd = spot_ctx.get("change_prev_day_yen")
                 st.metric("実勢: 前営業日 Δ円", f"{vd:+.3f}" if vd is not None else "—")
+            if spot_ctx.get("granularity") == "daily":
+                st.caption(
+                    "※ 実勢は**日足ベース**です（時間足が取得できなかったため）。"
+                    "1時間／6時間のΔは — 表示になりますが、24時間・前営業日と乖離判定は動きます。"
+                )
 
         if spot_ctx.get("is_shock"):
             st.error(

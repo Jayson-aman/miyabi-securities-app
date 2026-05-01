@@ -256,17 +256,72 @@ def _calc_factor_bias(factor_meta: dict, factor_data: dict) -> dict:
     }
 
 
+def _usdjpy_daily_history():
+    try:
+        t = yf.Ticker("USDJPY=X")
+        df = t.history(period="40d", interval="1d", auto_adjust=True)
+        if df is not None and not df.empty and len(df) >= 2:
+            return df
+    except Exception:
+        pass
+    try:
+        raw = yf.download(
+            "USDJPY=X",
+            period="40d",
+            interval="1d",
+            progress=False,
+            threads=False,
+            auto_adjust=True,
+        )
+        if raw is not None and not raw.empty and "Close" in raw.columns and len(raw) >= 2:
+            return raw
+    except Exception:
+        pass
+    return None
+
+
+def _usdjpy_hourly_history():
+    """クラウド等で 1h の Ticker.history が空になりやすいため download も試す。"""
+    for get_download in (False, True):
+        try:
+            if not get_download:
+                t = yf.Ticker("USDJPY=X")
+                df = t.history(period="12d", interval="1h", auto_adjust=True)
+            else:
+                df = yf.download(
+                    "USDJPY=X",
+                    period="12d",
+                    interval="1h",
+                    progress=False,
+                    threads=False,
+                    auto_adjust=True,
+                )
+                if df is None or df.empty:
+                    continue
+                if isinstance(df.columns, pd.MultiIndex):
+                    close_cols = [c for c in df.columns if c[0] == "Close"]
+                    if not close_cols:
+                        continue
+                    ser = df[close_cols[0]].dropna()
+                    df = ser.to_frame(name="Close")
+                elif "Close" not in df.columns:
+                    continue
+            if df is not None and not df.empty and "Close" in df.columns and len(df) >= 3:
+                return df
+        except Exception:
+            continue
+    return None
+
+
 def fetch_usdjpy_spot_context() -> Optional[dict]:
     """
     ドル円の短期実勢（主に1時間足）を取得。
-    ファクター総合（数日スパンの加重）とは独立して「今・直近がどう動いたか」を把握する。
+    時間足が取得できない環境（Streamlit Cloud の yfinance 制限など）では日足に落として表示する。
     """
-    try:
-        t = yf.Ticker("USDJPY=X")
-        df_h = t.history(period="12d", interval="1h")
-        df_d = t.history(period="40d", interval="1d")
-        if df_h is None or df_h.empty or len(df_h) < 3:
-            return None
+    df_d = _usdjpy_daily_history()
+    df_h = _usdjpy_hourly_history()
+
+    if df_h is not None:
         close = df_h["Close"].dropna()
         cur = float(close.iloc[-1])
         ch_1h = float(close.iloc[-1] - close.iloc[-2]) if len(close) >= 2 else 0.0
@@ -300,6 +355,37 @@ def fetch_usdjpy_spot_context() -> Optional[dict]:
             "is_shock": is_shock,
             "shock_move_yen": round(shock_move, 3),
             "shock_window": shock_window,
+            "granularity": "hourly",
+        }
+
+    # --- 日足のみ（時間足が無理な環境向け） ---
+    if df_d is None or df_d.empty or len(df_d) < 2:
+        return None
+    try:
+        close = df_d["Close"].dropna()
+        cur = float(close.iloc[-1])
+        prev_daily_move = float(close.iloc[-1] - close.iloc[-2])
+        ch_24h = prev_daily_move
+        ch_5d = float(close.iloc[-1] - close.iloc[-6]) if len(close) >= 6 else None
+
+        is_shock = abs(prev_daily_move) >= 2.5
+        shock_move = abs(prev_daily_move)
+        shock_window = "直近営業日（日足）"
+        if not is_shock and ch_5d is not None and abs(ch_5d) >= 4.0:
+            is_shock = True
+            shock_move = abs(ch_5d)
+            shock_window = "直近5営業日程度（日足）"
+
+        return {
+            "current": round(cur, 3),
+            "change_1h_yen": None,
+            "change_6h_yen": None,
+            "change_24h_yen": round(ch_24h, 3),
+            "change_prev_day_yen": round(prev_daily_move, 3),
+            "is_shock": is_shock,
+            "shock_move_yen": round(shock_move, 3),
+            "shock_window": shock_window if is_shock else None,
+            "granularity": "daily",
         }
     except Exception:
         return None
@@ -313,7 +399,8 @@ def reconcile_factor_verdict_with_spot(summary: dict, spot: Optional[dict]) -> d
         return {"is_divergent": False, "message": "", "severity": "none"}
 
     verdict = summary.get("verdict", "")
-    ch1 = float(spot.get("change_1h_yen") or 0.0)
+    ch1_raw = spot.get("change_1h_yen")
+    ch1 = float(ch1_raw) if ch1_raw is not None else None
     ch6 = spot.get("change_6h_yen")
     ch24 = spot.get("change_24h_yen")
     d1 = spot.get("change_prev_day_yen")
@@ -329,7 +416,7 @@ def reconcile_factor_verdict_with_spot(summary: dict, spot: Optional[dict]) -> d
         severity = s
 
     if "円安" in verdict:
-        if ch1 <= -0.35:
+        if ch1 is not None and ch1 <= -0.35:
             _set(
                 f"ファクターは円安寄りだが、直近1時間でドル円は {ch1:+.3f} 円（円高＝下落方向）と逆行。",
                 "high" if ch1 <= -0.8 else "medium",
@@ -351,7 +438,7 @@ def reconcile_factor_verdict_with_spot(summary: dict, spot: Optional[dict]) -> d
             )
 
     elif "円高" in verdict:
-        if ch1 >= 0.35:
+        if ch1 is not None and ch1 >= 0.35:
             _set(
                 f"ファクターは円高寄りだが、直近1時間でドル円は {ch1:+.3f} 円（円安＝上昇方向）と逆行。",
                 "high" if ch1 >= 0.8 else "medium",
