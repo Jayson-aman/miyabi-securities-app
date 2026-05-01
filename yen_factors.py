@@ -256,6 +256,143 @@ def _calc_factor_bias(factor_meta: dict, factor_data: dict) -> dict:
     }
 
 
+def fetch_usdjpy_spot_context() -> Optional[dict]:
+    """
+    ドル円の短期実勢（主に1時間足）を取得。
+    ファクター総合（数日スパンの加重）とは独立して「今・直近がどう動いたか」を把握する。
+    """
+    try:
+        t = yf.Ticker("USDJPY=X")
+        df_h = t.history(period="12d", interval="1h")
+        df_d = t.history(period="40d", interval="1d")
+        if df_h is None or df_h.empty or len(df_h) < 3:
+            return None
+        close = df_h["Close"].dropna()
+        cur = float(close.iloc[-1])
+        ch_1h = float(close.iloc[-1] - close.iloc[-2]) if len(close) >= 2 else 0.0
+        ch_6h = float(close.iloc[-1] - close.iloc[-7]) if len(close) >= 7 else None
+        ch_24h = float(close.iloc[-1] - close.iloc[-25]) if len(close) >= 25 else None
+
+        prev_daily_move = None
+        if df_d is not None and not df_d.empty and len(df_d) >= 2:
+            prev_daily_move = float(df_d["Close"].iloc[-1] - df_d["Close"].iloc[-2])
+
+        shock_move = abs(ch_1h)
+        shock_window = None
+        is_shock = shock_move >= 1.0
+        if is_shock:
+            shock_window = "1時間"
+        elif ch_24h is not None and abs(ch_24h) >= 2.0:
+            is_shock = True
+            shock_move = abs(ch_24h)
+            shock_window = "約24時間"
+        elif prev_daily_move is not None and abs(prev_daily_move) >= 2.5:
+            is_shock = True
+            shock_move = abs(prev_daily_move)
+            shock_window = "直近営業日（日足）"
+
+        return {
+            "current": round(cur, 3),
+            "change_1h_yen": round(ch_1h, 3),
+            "change_6h_yen": round(ch_6h, 3) if ch_6h is not None else None,
+            "change_24h_yen": round(ch_24h, 3) if ch_24h is not None else None,
+            "change_prev_day_yen": round(prev_daily_move, 3) if prev_daily_move is not None else None,
+            "is_shock": is_shock,
+            "shock_move_yen": round(shock_move, 3),
+            "shock_window": shock_window,
+        }
+    except Exception:
+        return None
+
+
+def reconcile_factor_verdict_with_spot(summary: dict, spot: Optional[dict]) -> dict:
+    """
+    ファクター総合判定と短期ドル円実勢の符号が大きくズレたときに警告（乖離検知）。
+    """
+    if not spot:
+        return {"is_divergent": False, "message": "", "severity": "none"}
+
+    verdict = summary.get("verdict", "")
+    ch1 = float(spot.get("change_1h_yen") or 0.0)
+    ch6 = spot.get("change_6h_yen")
+    ch24 = spot.get("change_24h_yen")
+    d1 = spot.get("change_prev_day_yen")
+
+    diverge = False
+    msg = ""
+    severity = "none"
+
+    def _set(m: str, s: str):
+        nonlocal diverge, msg, severity
+        diverge = True
+        msg = m
+        severity = s
+
+    if "円安" in verdict:
+        if ch1 <= -0.35:
+            _set(
+                f"ファクターは円安寄りだが、直近1時間でドル円は {ch1:+.3f} 円（円高＝下落方向）と逆行。",
+                "high" if ch1 <= -0.8 else "medium",
+            )
+        elif ch6 is not None and ch6 <= -0.6:
+            _set(
+                f"ファクターは円安寄りだが、直近6時間でドル円は {ch6:+.3f} 円と円高方向。",
+                "medium",
+            )
+        elif ch24 is not None and ch24 <= -1.0:
+            _set(
+                f"ファクターは円安寄りだが、約24時間でドル円は {ch24:+.3f} 円と円高が優勢。",
+                "high" if ch24 <= -2.0 else "medium",
+            )
+        elif d1 is not None and d1 <= -1.5:
+            _set(
+                f"ファクターは円安寄りだが、直近営業日の日足では {d1:+.3f} 円下落（急円高）。",
+                "high" if d1 <= -3.0 else "medium",
+            )
+
+    elif "円高" in verdict:
+        if ch1 >= 0.35:
+            _set(
+                f"ファクターは円高寄りだが、直近1時間でドル円は {ch1:+.3f} 円（円安＝上昇方向）と逆行。",
+                "high" if ch1 >= 0.8 else "medium",
+            )
+        elif ch6 is not None and ch6 >= 0.6:
+            _set(
+                f"ファクターは円高寄りだが、直近6時間でドル円は {ch6:+.3f} 円と円安方向。",
+                "medium",
+            )
+        elif ch24 is not None and ch24 >= 1.0:
+            _set(
+                f"ファクターは円高寄りだが、約24時間でドル円は {ch24:+.3f} 円と円安が優勢。",
+                "high" if ch24 >= 2.0 else "medium",
+            )
+        elif d1 is not None and d1 >= 1.5:
+            _set(
+                f"ファクターは円高寄りだが、直近営業日の日足では {d1:+.3f} 円上昇（急円安）。",
+                "high" if d1 >= 3.0 else "medium",
+            )
+
+    elif verdict.startswith("中立"):
+        if d1 is not None and abs(d1) >= 2.0:
+            _set(
+                f"ファクター総合は中立だが、直近営業日の日足でドル円は {d1:+.3f} 円と**大きく変動**。"
+                "ファクターモデルは数日スケールの拮抗を示している一方、**短期フローが上書き**している可能性。",
+                "high" if abs(d1) >= 4.0 else "medium",
+            )
+        elif ch24 is not None and abs(ch24) >= 2.0:
+            _set(
+                f"ファクター総合は中立だが、約24時間でドル円は {ch24:+.3f} 円の振れ。"
+                "ポジション調整・イベント・流動性要因を優先的に確認してください。",
+                "medium",
+            )
+
+    return {
+        "is_divergent": diverge,
+        "message": msg,
+        "severity": severity,
+    }
+
+
 def analyze_all_factors() -> dict:
     """
     全ての円相場ファクターを取得＆分析し、総合判定を返す
@@ -346,6 +483,31 @@ def analyze_all_factors() -> dict:
     usdjpy_data = _fetch_factor("USDJPY=X")
     current_usdjpy = usdjpy_data["current"] if usdjpy_data else None
 
+    spot_ctx = fetch_usdjpy_spot_context()
+    reconciliation = reconcile_factor_verdict_with_spot(
+        {
+            "verdict": verdict,
+            "total_score": round(total_score, 1),
+            "verdict_strength": strength,
+        },
+        spot_ctx,
+    )
+
+    try:
+        from yen_broker_lens import synthesize_broker_lens
+
+        broker_lens = synthesize_broker_lens(
+            summary={
+                "verdict": verdict,
+                "total_score": round(total_score, 1),
+                "verdict_strength": strength,
+            },
+            spot_ctx=spot_ctx,
+            reconciliation=reconciliation,
+        )
+    except Exception:
+        broker_lens = {}
+
     return {
         "categories": categories,
         "summary": {
@@ -362,6 +524,9 @@ def analyze_all_factors() -> dict:
         "geopolitical": GEOPOLITICAL_RISKS,
         "intervention": INTERVENTION_LEVELS,
         "current_usdjpy": current_usdjpy,
+        "spot_context": spot_ctx,
+        "reconciliation": reconciliation,
+        "broker_lens": broker_lens,
         "analyzed_at": datetime.now().isoformat(),
     }
 

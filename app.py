@@ -3632,6 +3632,51 @@ elif page == "💴 円相場 総合分析":
         </div>
         """, unsafe_allow_html=True)
 
+        spot_ctx = yen_analysis.get("spot_context") or {}
+        recon = yen_analysis.get("reconciliation") or {}
+        broker_lens = yen_analysis.get("broker_lens") or {}
+
+        if spot_ctx:
+            c_s1, c_s2, c_s3, c_s4 = st.columns(4)
+            with c_s1:
+                st.metric("実勢: 直近1時間 Δ円", f"{spot_ctx.get('change_1h_yen', 0):+.3f}")
+            with c_s2:
+                v6 = spot_ctx.get("change_6h_yen")
+                st.metric("実勢: 直近6時間 Δ円", f"{v6:+.3f}" if v6 is not None else "—")
+            with c_s3:
+                v24 = spot_ctx.get("change_24h_yen")
+                st.metric("実勢: 約24時間 Δ円", f"{v24:+.3f}" if v24 is not None else "—")
+            with c_s4:
+                vd = spot_ctx.get("change_prev_day_yen")
+                st.metric("実勢: 前営業日 Δ円", f"{vd:+.3f}" if vd is not None else "—")
+
+        if spot_ctx.get("is_shock"):
+            st.error(
+                f"⚠️ **短期ショック検知**: {spot_ctx.get('shock_window', '—')} で "
+                f"約 **{spot_ctx.get('shock_move_yen', 0):.2f} 円**振れ。"
+                "ファクターバイアスは追いつかないことがあります。"
+            )
+
+        if recon.get("is_divergent"):
+            sev = recon.get("severity", "")
+            if sev == "high":
+                st.error(f"🚨 **モデル乖離**: {recon.get('message', '')}")
+            else:
+                st.warning(f"⚠️ **モデル乖離**: {recon.get('message', '')}")
+
+        if broker_lens.get("themes_markdown"):
+            with st.expander("📑 証券レポートで一般的な着眼点（参考・一般論）", expanded=False):
+                st.caption(broker_lens.get("disclaimer", ""))
+                if broker_lens.get("score_context"):
+                    st.markdown(broker_lens["score_context"])
+                if broker_lens.get("divergence"):
+                    st.markdown(broker_lens["divergence"])
+                if broker_lens.get("shock"):
+                    st.markdown(broker_lens["shock"])
+                st.markdown("---")
+                for line in broker_lens["themes_markdown"]:
+                    st.markdown(f"- {line}")
+
         # ─── ドル円水準 & 介入リスク ───
         warn = get_intervention_warning(current_usdjpy) if current_usdjpy else None
         spread = calc_us_jp_yield_spread()
