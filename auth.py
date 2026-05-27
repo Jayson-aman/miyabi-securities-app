@@ -35,6 +35,36 @@ LOCKOUT_MINUTES = 15
 SESSION_MAX_HOURS = 12
 
 
+def _is_streamlit_cloud() -> bool:
+    """Community Cloud 上で動いているかの目安（ローカルでは False）。"""
+    host = (
+        os.environ.get("HOSTNAME", "")
+        + os.environ.get("STREAMLIT_SERVER_ADDRESS", "")
+        + os.environ.get("STREAMLIT_SERVER_HEADLESS", "")
+    ).lower()
+    if "streamlit.app" in host:
+        return True
+    if os.environ.get("STREAMLIT_RUNTIME_ENV", "").lower() == "cloud":
+        return True
+    return False
+
+
+def _clean_hex_secret(value) -> str:
+    """Secrets 貼り付け時の余分な引用符・空白を除去。"""
+    if value is None:
+        return ""
+    return str(value).strip().strip('"').strip("'")
+
+
+def _session_max_hours() -> int:
+    try:
+        auth = st.secrets.get("auth", {})
+        h = int(auth.get("session_hours", SESSION_MAX_HOURS))
+        return max(1, min(h, 168))
+    except Exception:
+        return SESSION_MAX_HOURS
+
+
 # ═══════════════════════════════════════════
 # ハッシュ
 # ═══════════════════════════════════════════
@@ -59,15 +89,55 @@ def generate_hash(password: str) -> Tuple[str, str]:
 # 設定読込（Cloud優先 → Local fallback）
 # ═══════════════════════════════════════════
 
+def _auth_disabled_in_secrets() -> bool:
+    """感想収集などで一時的にログインを無効化。"""
+    try:
+        auth = st.secrets.get("auth", {})
+        if auth.get("enabled") is False:
+            return True
+        if str(auth.get("enabled", "")).lower() in ("false", "0", "no"):
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def _preview_mode_active() -> Tuple[bool, str]:
+    """
+    [app] preview_public = true で認証スキップ（期限付き可）。
+    Returns: (active, note_for_banner)
+    """
+    try:
+        app = st.secrets.get("app", {})
+        if not app.get("preview_public"):
+            return False, ""
+        if str(app.get("preview_public", "")).lower() in ("false", "0", "no"):
+            return False, ""
+        until = str(app.get("preview_until", "")).strip()
+        if until:
+            try:
+                end = datetime.fromisoformat(until.replace("Z", "")).date()
+                if datetime.now().date() > end:
+                    return False, ""
+            except Exception:
+                pass
+        note = str(app.get("preview_note", "")).strip() or "感想・評価用の一時公開モードです。"
+        return True, note
+    except Exception:
+        return False, ""
+
+
 def _load_from_secrets() -> Optional[dict]:
     """Streamlit secrets に [auth] セクションがあれば読む"""
     try:
         if "auth" in st.secrets:
             s = st.secrets["auth"]
-            if "salt" in s and "hash" in s:
+            salt = _clean_hex_secret(s.get("salt"))
+            hsh = _clean_hex_secret(s.get("hash"))
+            if salt and hsh:
                 return {
-                    "salt": s["salt"],
-                    "hash": s["hash"],
+                    "salt": salt,
+                    "hash": hsh,
                     "source": "secrets",
                 }
     except Exception:
@@ -199,7 +269,7 @@ def is_authenticated() -> bool:
     login_at = st.session_state.get("auth_login_at")
     if login_at is None:
         return False
-    if datetime.now() - login_at > timedelta(hours=SESSION_MAX_HOURS):
+    if datetime.now() - login_at > timedelta(hours=_session_max_hours()):
         st.session_state["auth_ok"] = False
         return False
     return True
@@ -215,13 +285,47 @@ def _branding_header(subtitle: str):
     """, unsafe_allow_html=True)
 
 
+def _cloud_secrets_setup_screen():
+    """クラウドで auth が未設定のとき（初回設定フォームは保存されないため）。"""
+    _branding_header("⚙️ クラウド用パスワード設定")
+    st.error(
+        "**Streamlit Cloud では、この画面でのパスワード設定は保存されません。**\n\n"
+        "そのため「何度も初回設定を求められる」ように見えることがあります。"
+    )
+    st.markdown(
+        """
+**一度だけ**次の手順で **Secrets** に登録してください（同じパスワードなら **hash を作り直す必要はありません**）。
+
+1. Mac のターミナルで `python3 generate_password_hash.py` を実行（**パスワードは1つ決めて固定**）
+2. 表示された `[auth]` の `salt` と `hash` をコピー
+3. [share.streamlit.io](https://share.streamlit.io) → アプリ → **Settings → Secrets** に貼り付け → **Save**
+4. **Reboot app** 後、携帯でそのパスワードでログイン
+
+**感想・評価だけ先に見せたい場合**は、下記の「一時公開モード」を Secrets に追加できます（DEPLOY.md 参照）。
+        """
+    )
+    st.code(
+        """[auth]
+salt = "（generate_password_hash.py の出力）"
+hash = "（generate_password_hash.py の出力）"
+
+# 感想収集だけ先にする場合（評価後に削除または false に）
+[app]
+preview_public = true
+preview_until = "2026-06-30"
+preview_note = "評価・ご意見用の一時公開です。終了後はパスワード保護に戻します。"
+""",
+        language="toml",
+    )
+
+
 def _initial_setup_form():
     """初回パスワード設定UI（ローカルのみ）"""
     _branding_header("🔐 初回パスワード設定")
     st.info(
         "初めてのご利用です。管理用パスワードを設定してください（8文字以上）。\n\n"
-        "クラウド（Streamlit Cloud）にデプロイする場合は、"
-        "この画面で設定せず、Secrets に直接ハッシュを貼り付けてください（DEPLOY.md 参照）。"
+        "**この設定はこのPCの `auth_config.json` にだけ保存されます。**"
+        "クラウド（Streamlit Cloud）では **Secrets** にハッシュを貼ってください（DEPLOY.md 参照）。"
     )
 
     with st.form("initial_setup", clear_on_submit=False):
@@ -272,11 +376,34 @@ def _login_form(cfg: dict):
                     st.error(f"🔒 {MAX_FAILED_ATTEMPTS}回失敗したため {LOCKOUT_MINUTES}分 ロックされました")
 
 
+def render_preview_banner():
+    """一時公開モードの注意表示（app.py から require_login 後に呼ぶ）。"""
+    if not st.session_state.get("_auth_preview_mode"):
+        return
+    note = st.session_state.get("_auth_preview_note", "")
+    st.warning(
+        f"📢 **一時公開モード** — {note}  "
+        "評価が終わったら Secrets の `preview_public` を削除するか `false` にし、"
+        "`[auth]` のパスワード保護を有効にしてください。"
+    )
+
+
 def require_login():
     """
     ログインを要求するゲート関数。
     app.py の st.set_page_config() 直後に呼ぶだけでアプリ全体を保護する。
     """
+    preview_on, preview_note = _preview_mode_active()
+    if preview_on or _auth_disabled_in_secrets():
+        st.session_state["auth_ok"] = True
+        st.session_state["auth_login_at"] = datetime.now()
+        st.session_state["auth_source"] = "preview"
+        st.session_state["_auth_preview_mode"] = True
+        st.session_state["_auth_preview_note"] = preview_note or "認証オフ（設定による）"
+        return
+
+    st.session_state["_auth_preview_mode"] = False
+
     if is_authenticated():
         return
 
@@ -285,8 +412,14 @@ def require_login():
     _, center, _ = st.columns([1, 2, 1])
     with center:
         if cfg is None:
-            _initial_setup_form()
+            if _is_streamlit_cloud():
+                _cloud_secrets_setup_screen()
+            else:
+                _initial_setup_form()
         else:
+            src = cfg.get("source", "")
+            if src == "secrets":
+                st.caption("☁️ クラウド認証 — パスワードは Secrets で登録したもの（再生成のたびに Secrets も更新が必要）")
             _login_form(cfg)
 
     st.stop()
@@ -299,10 +432,13 @@ def render_auth_sidebar():
 
     login_at = st.session_state.get("auth_login_at")
     source = st.session_state.get("auth_source", "unknown")
-    expires_at = login_at + timedelta(hours=SESSION_MAX_HOURS) if login_at else None
+    expires_at = login_at + timedelta(hours=_session_max_hours()) if login_at else None
 
     with st.sidebar:
         with st.expander("🔐 セッション情報", expanded=False):
+            if source == "preview":
+                st.warning("一時公開モード（パスワードなし）")
+                return
             src_label = "☁️ クラウド" if source == "secrets" else "💻 ローカル"
             st.caption(f"認証ソース: {src_label}")
 

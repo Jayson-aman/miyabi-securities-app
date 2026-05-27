@@ -49,6 +49,7 @@ def main():
     print("  3. 上記の3行を貼り付けて Save")
     print()
     print("⚠  salt と hash は絶対にGitHubに公開しないでください")
+    print("⚠  同じパスワードのままなら hash を作り直さないでください（Secrets と不一致になりログインできなくなります）")
     print()
 
 

@@ -115,8 +115,9 @@ st.set_page_config(
 )
 
 # ─── 認証ゲート（この下のコードはログイン後のみ実行） ───
-from auth import require_login, render_auth_sidebar
+from auth import require_login, render_auth_sidebar, render_preview_banner
 require_login()
+render_preview_banner()
 render_auth_sidebar()
 
 # ════════════════════════════════════════════════

@@ -217,6 +217,44 @@ git push
 5. 古い値を新しい値で上書き → **Save**
 6. アプリは数秒で再起動し、新しいパスワードで使えるようになります
 
+⚠ **同じパスワードなのにログインできない**ときは、多くの場合 **hash を作り直したのに Secrets を古いまま**にしています。  
+パスワードを変えない限り **hash の再生成は不要**です。変えるときだけ「新パスワード → 新 hash → Secrets 更新」のセットで行ってください。
+
+---
+
+## 📱 携帯で試す・感想を聞いてから本公開する流れ
+
+### なぜ「何度もパスワード設定」になるか
+
+Streamlit Cloud では **画面上の初回パスワード設定は保存されません**（再起動で消える）。  
+クラウドでは必ず **Settings → Secrets** に `[auth]` の `salt` / `hash` を入れてください。
+
+### A. まず感想・評価だけ（パスワードなし・短期）
+
+Secrets に次を追加（期限は任意）：
+
+```toml
+[app]
+preview_public = true
+preview_until = "2026-06-30"
+preview_note = "評価・ご意見用の一時公開です"
+```
+
+→ **Save** → **Reboot app**。画面上部に「一時公開モード」と表示されます。  
+評価が終わったら `preview_public = false` にするか `[app]` ブロックを削除し、`[auth]` で保護を戻します。
+
+### B. 本公開（パスワードあり）
+
+```toml
+[auth]
+enabled = true
+session_hours = 24
+salt = "（generate_password_hash.py の出力）"
+hash = "（同じく）"
+```
+
+`preview_public` は **false または削除**にしてください。
+
 ---
 
 ## ❓ トラブルシューティング
@@ -225,7 +263,11 @@ git push
 → `requirements.txt` にそのモジュールを追記して `git push`
 
 ### Q2. ログインできない（パスワード違う）
-→ `generate_password_hash.py` で再生成 → Secretsを更新
+→ 本当にパスワードを変えたか確認。変えていないなら **hash の再生成は不要**（Secrets の salt/hash が最新か確認）。  
+→ 変えた場合だけ `generate_password_hash.py` → Secrets を **両方**更新
+
+### Q2b. 何度も「初回パスワード設定」や設定し直しが出る（クラウド）
+→ Secrets に `[auth]` の salt/hash が無い、または誤り。**画面上の設定はクラウドでは保存されない**（「携帯で試す」参照）
 
 ### Q3. `No such file or directory: 'auth_config.json'` エラー
 → `auth.py` は secrets が設定されていれば使わないので、Secrets が正しく設定されているか確認
