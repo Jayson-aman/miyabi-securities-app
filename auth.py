@@ -21,6 +21,8 @@ from typing import Optional, Tuple
 
 import streamlit as st
 
+from brand import APP_LOGO_LETTER, APP_NAME, APP_SHORT
+
 
 # ═══════════════════════════════════════════
 # 設定
@@ -63,6 +65,64 @@ def _session_max_hours() -> int:
         return max(1, min(h, 168))
     except Exception:
         return SESSION_MAX_HOURS
+
+
+def _truthy(val) -> bool:
+    if val is True:
+        return True
+    if val is False or val is None:
+        return False
+    return str(val).strip().lower() in ("true", "1", "yes", "on")
+
+
+def is_closed_until_notice() -> bool:
+    """連絡・確認が整うまで一般公開しないモード。"""
+    try:
+        app = st.secrets.get("app", {})
+        if _truthy(app.get("closed_until_notice")):
+            return True
+        if _truthy(app.get("public_access")) is False:
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def closed_notice_message() -> str:
+    default = (
+        "現在、連絡・確認が整うまで一般公開しておりません。"
+        " お問い合わせ: info@zaibase.group"
+    )
+    try:
+        app = st.secrets.get("app", {})
+        custom = str(app.get("closed_message", "")).strip()
+        return custom or default
+    except Exception:
+        return default
+
+
+def render_closed_banner() -> None:
+    """ログイン後 — 非公開運用中の表示。"""
+    if not is_closed_until_notice():
+        return
+    st.info(f"🔒 **非公開運用中** — {closed_notice_message()}")
+
+
+def render_closed_login_notice() -> None:
+    """ログイン画面 — 一般向け非公開の案内。"""
+    if not is_closed_until_notice():
+        return
+    st.markdown(
+        f"""
+        <div style="background:#FFF3E0;border:1px solid #FFB74D;border-left:4px solid #F57C00;
+            padding:14px 16px;border-radius:4px;margin-bottom:16px;font-size:0.88rem;line-height:1.6;color:#5D4037;">
+        <b>🔒 現在非公開</b><br>
+        {closed_notice_message()}<br>
+        <span style="font-size:0.78rem;color:#795548;">運営者のみパスワードでアクセスできます。</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 # ═══════════════════════════════════════════
@@ -278,8 +338,8 @@ def is_authenticated() -> bool:
 def _branding_header(subtitle: str):
     st.markdown(f"""
     <div style="background:linear-gradient(135deg,#0B3D91 0%,#1A2D6E 100%);color:#fff;padding:24px;border-radius:6px;text-align:center;border:2px solid #C9A961;margin-bottom:20px;">
-      <div style="font-family:'Hiragino Mincho ProN',serif;font-size:2.5rem;font-weight:700;letter-spacing:8px;background:linear-gradient(135deg,#C9A961 0%,#F0D580 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;">雅</div>
-      <div style="font-size:0.85rem;letter-spacing:6px;color:#C9A961;margin-top:6px;">MIYABI SECURITIES</div>
+      <div style="font-family:-apple-system,BlinkMacSystemFont,sans-serif;font-size:2rem;font-weight:700;letter-spacing:2px;background:linear-gradient(135deg,#C9A961 0%,#F0D580 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;">{APP_LOGO_LETTER}</div>
+      <div style="font-size:0.85rem;letter-spacing:3px;color:#C9A961;margin-top:6px;">{APP_NAME}</div>
       <div style="font-size:1rem;margin-top:12px;">{subtitle}</div>
     </div>
     """, unsafe_allow_html=True)
@@ -393,7 +453,14 @@ def require_login():
     ログインを要求するゲート関数。
     app.py の st.set_page_config() 直後に呼ぶだけでアプリ全体を保護する。
     """
+    st.session_state["_closed_mode"] = is_closed_until_notice()
+
     preview_on, preview_note = _preview_mode_active()
+    # 非公開中は preview_public を無効化（パスワード必須）
+    if is_closed_until_notice():
+        preview_on = False
+        preview_note = ""
+
     if preview_on or _auth_disabled_in_secrets():
         st.session_state["auth_ok"] = True
         st.session_state["auth_login_at"] = datetime.now()
@@ -411,6 +478,7 @@ def require_login():
 
     _, center, _ = st.columns([1, 2, 1])
     with center:
+        render_closed_login_notice()
         if cfg is None:
             if _is_streamlit_cloud():
                 _cloud_secrets_setup_screen()
@@ -439,6 +507,8 @@ def render_auth_sidebar():
             if source == "preview":
                 st.warning("一時公開モード（パスワードなし）")
                 return
+            if st.session_state.get("_closed_mode"):
+                st.caption("🔒 非公開運用中（運営者ログイン）")
             src_label = "☁️ クラウド" if source == "secrets" else "💻 ローカル"
             st.caption(f"認証ソース: {src_label}")
 

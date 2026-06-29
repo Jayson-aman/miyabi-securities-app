@@ -14,6 +14,8 @@ from datetime import datetime, timedelta
 from email.mime.text import MIMEText
 from typing import Any
 
+from brand import EMAIL_SENDER_LABEL, EMAIL_SUBJECT_PREFIX
+
 import pandas as pd
 import streamlit as st
 
@@ -100,7 +102,7 @@ def _reasoning_by_label(reasonings: dict[str, list[dict[str, Any]]]) -> dict[str
 
 def _build_body(candidate: dict[str, Any], reasoning: dict[str, Any] | None) -> str:
     lines = [
-        "雅証券 FX 予測アラート",
+        EMAIL_SENDER_LABEL,
         "",
         f"銘柄: {candidate['label']}",
         f"判断: {candidate['trade_side']}",
@@ -127,7 +129,9 @@ def _build_body(candidate: dict[str, Any], reasoning: dict[str, Any] | None) -> 
 
     lines.extend([
         "",
-        "注意: これは短期予測であり、投資判断の最終決定ではありません。",
+        "【重要】本通知は Zaibase.finance の自動参考情報です。",
+        "投資助言・投資勧誘・取引執行ではありません。",
+        "投資判断はご自身の責任で行ってください。",
         "急変時はスプレッド拡大・約定ずれ・指標発表に注意してください。",
     ])
     return "\n".join(lines)
@@ -186,7 +190,7 @@ def check_and_send_fx_move_alerts(
             result["skipped"].append({**candidate, "reason": "cooldown"})
             continue
 
-        subject = f"【雅証券FX】{label} {trade_side} {diff_yen:+.3f}円"
+        subject = f"{EMAIL_SUBJECT_PREFIX}{label} {trade_side} {diff_yen:+.3f}円"
         body = _build_body(candidate, reasons.get(label))
         ok, message = _send_email(subject, body, cfg)
         if ok:

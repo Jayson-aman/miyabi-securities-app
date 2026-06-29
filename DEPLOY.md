@@ -222,6 +222,50 @@ git push
 
 ---
 
+## 🔒 連絡があるまで非公開（現在の運用）
+
+Secrets に以下を設定し、**Reboot** してください。
+
+```toml
+[app]
+closed_until_notice = true
+closed_message = "連絡・確認が整うまで一般公開しておりません。お問い合わせ: info@zaibase.group"
+preview_public = false
+
+[auth]
+enabled = true
+# salt / hash は generate_password_hash.py で生成
+
+[legal]
+operator_name = "南條 雅哉（Zaibase.finance）"
+contact_email = "info@zaibase.group"
+# ↓ 所在地は Cloud Secrets にのみ記載（GitHub には載せない）
+address = "（ここに実住所 — 例: 大阪市…）"
+show_address = false
+
+[billing]
+enabled = false
+
+[email_alert]
+enabled = false
+```
+
+| 項目 | 非公開中 |
+|------|---------|
+| 一般ユーザー | ログイン画面に「非公開」表示のみ（URLを知っていても中身は見えない） |
+| 運営者（南條さん） | **パスワード** で開発・確認可能 |
+| 一時公開 `preview_public` | **強制オフ**（非公開中は無視） |
+| Pro課金・メール通知 | Secrets で **false** 推奨 |
+| **所在地** | Secrets にのみ保管。**画面には表示しない**（`show_address = false` かつ非公開中） |
+
+**一般公開するとき** → `closed_until_notice = false` に変更 → 特商法表記が必要なら `show_address = true` → Reboot
+
+⚠ **住所は `.streamlit/secrets.toml`（ローカル）または Streamlit Cloud の Secrets にだけ** 入れてください。GitHub への commit はしないでください。
+
+Streamlit Cloud のアプリ URL は、知っている人だけアクセスできます。**GitHub リポジトリは Private** のままにしてください。
+
+---
+
 ## 📱 携帯で試す・感想を聞いてから本公開する流れ
 
 ### なぜ「何度もパスワード設定」になるか

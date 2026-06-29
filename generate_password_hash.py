@@ -14,11 +14,12 @@ import getpass
 import sys
 
 from auth import generate_hash
+from brand import APP_NAME
 
 
 def main():
     print("=" * 60)
-    print("  🌐 雅証券 | Streamlit Cloud 用パスワードハッシュ生成")
+    print(f"  📊 {APP_NAME} | Streamlit Cloud 用パスワードハッシュ生成")
     print("=" * 60)
     print()
 

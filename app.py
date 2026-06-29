@@ -9,6 +9,21 @@ from plotly.subplots import make_subplots
 import pandas as pd
 from datetime import datetime
 
+from brand import (
+    APP_NAME,
+    APP_SHORT,
+    APP_LOGO_LETTER,
+    APP_TAGLINE,
+    APP_SUBTITLE,
+    APP_PAGE_TITLE,
+    APP_PWA_TITLE,
+    APP_MENU_LABEL,
+    APP_FOOTER_LINE1,
+    APP_FOOTER_LINE2,
+    APP_FOOTER_COPY,
+    APP_DISCLAIMER,
+)
+
 from data_fetcher import (
     FUTURES_SYMBOLS,
     CURRENCY_PAIRS,
@@ -90,6 +105,12 @@ from interval_predictor import (
     get_all_reasonings,
 )
 from fx_email_alerts import check_and_send_fx_move_alerts
+from monitor_panel import render_tri_monitor
+from subscription import billing_enabled, has_pro, require_pro, render_billing_sidebar
+from cfd_terminal import render_cfd_terminal
+from daiwa_margin_alerts import check_all_daiwa_alerts, thresholds_for_loss_cut_base
+from alarm_ui import render_alarm_events, render_alarm_settings_sidebar
+from candlestick_guide import render_candlestick_guide
 from chart_patterns import (
     analyze_ticker_patterns,
     PATTERN_DETECTORS,
@@ -108,25 +129,30 @@ from fundamental_screener import (
 
 # ─── ページ設定 ───
 st.set_page_config(
-    page_title="雅証券 | MIYABI Securities Terminal",
-    page_icon="🌐",
+    page_title=APP_PAGE_TITLE,
+    page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
 # ─── 認証ゲート（この下のコードはログイン後のみ実行） ───
-from auth import require_login, render_auth_sidebar, render_preview_banner
+from auth import require_login, render_auth_sidebar, render_preview_banner, render_closed_banner
+from legal import require_terms_acceptance, render_legal_banner, render_legal_page, TERMS_VERSION
 require_login()
+require_terms_acceptance()
 render_preview_banner()
+render_closed_banner()
 render_auth_sidebar()
 
+# URL ?panel=fx|oil|dollar で3画面モニターページを直接開く（物理モニター用）
+_qp_panel = (st.query_params.get("panel") or "").strip().lower()
+if _qp_panel in ("fx", "oil", "dollar", "all"):
+    st.session_state["main_page"] = "🖥 3画面モニター"
+    st.session_state["monitor_panel_filter"] = _qp_panel
+
 # ════════════════════════════════════════════════
-#  雅証券（MIYABI）デザインシステム
-#  - メインカラー: 雅ブルー (#0B3D91 ロイヤルブルー)
-#  - サブ: ディープネイビー (#1A2238)
-#  - アクセント: 雅ゴールド (#C9A961 / #D4AF37)
-#  - 副アクセント: 桜色 (#F4D6E2)
-#  - 日本市場色: 上昇=赤(#D32030), 下落=青(#1565C0)
+#  Zaibase.finance デザインシステム
+#  - メインカラー: #0B3D91 / アクセント: #C9A961
 # ════════════════════════════════════════════════
 st.markdown("""
 <style>
@@ -154,7 +180,7 @@ st.markdown("""
     }
 
     /* ════════════════════════════════════════════════
-        雅証券 ヘッダーバー（ブルー × ゴールド × 桜）
+        Zaibase ヘッダーバー
        ════════════════════════════════════════════════ */
     .miyabi-header {
         background:
@@ -358,7 +384,7 @@ st.markdown("""
     }
 
     /* ════════════════════════════════════════════════
-        サイドバー（雅な雰囲気）
+        サイドバー
        ════════════════════════════════════════════════ */
     [data-testid="stSidebar"] {
         background: linear-gradient(180deg, #F4F7FB 0%, #E9EFF7 100%);
@@ -782,12 +808,12 @@ st.markdown("""
             font-size: 0.75rem !important;
             min-height: 32px !important;
         }
-        /* サイドバー上部の雅證券バッジを縮小 */
+        /* サイドバー上部バッジを縮小 */
         section[data-testid="stSidebar"] > div:first-child > div:first-child > div:first-child {
             padding: 8px 8px !important;
         }
 
-        /* 雅予測ボックス */
+        /* 予測ボックス */
         .prediction-box {
             padding: 10px !important;
         }
@@ -817,6 +843,95 @@ st.markdown("""
         }
     }
 
+    /* ════════════════════════════════════════════════
+        🖥 デスクトップ（1200px以上）— 画面を広く使う
+       ════════════════════════════════════════════════ */
+    @media (min-width: 1200px) {
+        .main .block-container {
+            max-width: 100% !important;
+            padding-left: 2rem !important;
+            padding-right: 2rem !important;
+        }
+        .miyabi-header {
+            margin-left: -2rem !important;
+            margin-right: -2rem !important;
+            padding: 20px 32px !important;
+        }
+        .market-ticker {
+            margin-left: -2rem !important;
+            margin-right: -2rem !important;
+        }
+        [data-testid="stMetricValue"] {
+            font-size: 1.55rem !important;
+        }
+    }
+    @media (min-width: 1600px) {
+        .main .block-container {
+            padding-left: 3rem !important;
+            padding-right: 3rem !important;
+        }
+    }
+
+    /* iPhone ノッチ・ホームインジケータ安全域 */
+    @supports (padding: max(0px)) {
+        .main .block-container {
+            padding-left: max(1rem, env(safe-area-inset-left)) !important;
+            padding-right: max(1rem, env(safe-area-inset-right)) !important;
+            padding-bottom: max(1rem, env(safe-area-inset-bottom)) !important;
+        }
+        .miyabi-header {
+            padding-top: max(18px, env(safe-area-inset-top)) !important;
+        }
+    }
+
+    /* ユーザー選択: ワイドレイアウト */
+    body.zb-layout-wide .main .block-container {
+        max-width: 100% !important;
+        padding-left: 2.5rem !important;
+        padding-right: 2.5rem !important;
+    }
+    body.zb-layout-wide .miyabi-header,
+    body.zb-layout-wide .market-ticker {
+        margin-left: -2.5rem !important;
+        margin-right: -2.5rem !important;
+    }
+    body.zb-layout-phone .main .block-container {
+        padding-left: 0.4rem !important;
+        padding-right: 0.4rem !important;
+    }
+    body.zb-layout-phone [data-testid="stHorizontalBlock"] {
+        flex-direction: column !important;
+    }
+    body.zb-layout-phone [data-testid="stHorizontalBlock"] > [data-testid="column"] {
+        min-width: 100% !important;
+        width: 100% !important;
+    }
+
+    /* 3画面モニター パネル見出し */
+    .monitor-panel-head {
+        background: linear-gradient(90deg, #0B3D91 0%, #1A2238 100%);
+        color: #fff;
+        padding: 10px 12px;
+        border-radius: 4px;
+        border-left: 4px solid #C9A961;
+        margin-bottom: 10px;
+    }
+    .monitor-panel-title {
+        font-size: 0.95rem;
+        font-weight: 700;
+        letter-spacing: 0.5px;
+    }
+    .monitor-panel-sub {
+        font-size: 0.72rem;
+        color: #C9A961;
+        margin-top: 3px;
+    }
+    @media (min-width: 1400px) {
+        .monitor-tri-grid [data-testid="column"] {
+            min-width: 0 !important;
+        }
+    }
+
     /* タッチデバイス共通：タップしやすく */
     @media (pointer: coarse) {
         .stButton button, [data-baseweb="tab"], .stRadio label, [role="radio"] {
@@ -827,18 +942,22 @@ st.markdown("""
         }
     }
 </style>
+""", unsafe_allow_html=True)
 
-<!-- モバイル用 viewport / PWA メタ -->
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
+st.markdown(f"""
+<!-- Web / iPhone viewport & PWA -->
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="雅証券">
+<meta name="apple-mobile-web-app-title" content="{APP_PWA_TITLE}">
 <meta name="theme-color" content="#0B3D91">
+<meta name="application-name" content="{APP_NAME}">
+<meta name="description" content="{APP_SUBTITLE}">
 """, unsafe_allow_html=True)
 
 
 # ════════════════════════════════════════════════
-#  雅証券（MIYABI）ヘッダーバー
+#  Zaibase.finance ヘッダーバー
 # ════════════════════════════════════════════════
 _now = datetime.now()
 _weekday = ["月", "火", "水", "木", "金", "土", "日"][_now.weekday()]
@@ -848,12 +967,12 @@ st.markdown(f"""
 <div class="miyabi-header">
     <div class="miyabi-header-left">
         <div>
-            <div class="miyabi-logo">雅</div>
-            <div class="miyabi-logo-en">MIYABI</div>
+            <div class="miyabi-logo">{APP_LOGO_LETTER}</div>
+            <div class="miyabi-logo-en">{APP_SHORT.upper()}</div>
         </div>
         <div>
-            <div class="miyabi-title">雅<span class="miyabi-title-accent">證券</span>　<span style="opacity:0.85;font-weight:400;font-size:0.95rem;">マーケット・ターミナル</span></div>
-            <div class="miyabi-subtitle">- Global Financial Intelligence Platform -　FX・先物・株式・仮想通貨・新興テーマ統合分析</div>
+            <div class="miyabi-title"><span class="miyabi-title-accent">{APP_SHORT}</span><span style="color:#C9A961;">.finance</span>　<span style="opacity:0.85;font-weight:400;font-size:0.95rem;">{APP_TAGLINE}</span></div>
+            <div class="miyabi-subtitle">{APP_SUBTITLE}</div>
         </div>
     </div>
     <div class="miyabi-header-right">
@@ -911,23 +1030,45 @@ for name, info in _get_ticker_data():
         )
 _ticker_html += '</div>'
 st.markdown(_ticker_html, unsafe_allow_html=True)
+render_legal_banner()
 
 # ─── サイドバー ───
 with st.sidebar:
-    st.markdown("""
+    st.markdown(f"""
     <div style="background:linear-gradient(135deg,#0B3D91 0%,#1A2D6E 100%);color:#fff;padding:14px 12px;border-radius:3px;margin-bottom:14px;text-align:center;border:1px solid #C9A961;box-shadow:0 2px 8px rgba(11,61,145,0.2);">
-        <div style="font-family:'Hiragino Mincho ProN',serif;font-size:1.5rem;font-weight:700;letter-spacing:6px;background:linear-gradient(135deg,#C9A961 0%,#F0D580 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;line-height:1;">雅</div>
-        <div style="font-size:0.65rem;letter-spacing:4px;color:#C9A961;margin-top:4px;font-style:italic;">MIYABI MENU</div>
-        <div style="font-size:0.7rem;opacity:0.85;margin-top:2px;letter-spacing:1px;">お取引メニュー</div>
+        <div style="font-family:-apple-system,BlinkMacSystemFont,sans-serif;font-size:1.35rem;font-weight:700;letter-spacing:1px;background:linear-gradient(135deg,#C9A961 0%,#F0D580 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;line-height:1.2;">{APP_SHORT}<span style="font-size:0.85rem;">.finance</span></div>
+        <div style="font-size:0.65rem;letter-spacing:3px;color:#C9A961;margin-top:4px;">MENU</div>
+        <div style="font-size:0.7rem;opacity:0.85;margin-top:2px;letter-spacing:1px;">{APP_MENU_LABEL}</div>
     </div>
     """, unsafe_allow_html=True)
 
+    _layout_labels = {
+        "auto": "自動（画面サイズに合わせる）",
+        "phone": "iPhone向け（1列・コンパクト）",
+        "standard": "標準",
+        "wide": "ワイド（PC全幅）",
+    }
+    layout_mode = st.radio(
+        "📐 表示レイアウト",
+        options=list(_layout_labels.keys()),
+        format_func=lambda k: _layout_labels[k],
+        index=0,
+        key="layout_mode",
+        horizontal=False,
+    )
+
     st.markdown("##### ❖ メニュー選択")
+
+    render_billing_sidebar()
+    render_alarm_settings_sidebar()
+    st.divider()
 
     page = st.radio(
         " ",
         [
             "📊 ダッシュボード",
+            "🏦 FX/CFD ターミナル",
+            "🖥 3画面モニター",
             "💴 円相場 総合分析",
             "⏰ 転換点・反転予測",
             "📅 経済イベント・カレンダー",
@@ -943,9 +1084,13 @@ with st.sidebar:
             "₿ 仮想通貨",
             "🔔 アラート",
             "📈 バックテスト",
+            "📜 利用規約・免責",
         ],
         label_visibility="collapsed",
+        key="main_page",
     )
+
+    st.caption(f"版 {TERMS_VERSION} — メニュー「📜 利用規約・免責」")
 
     st.divider()
 
@@ -1097,7 +1242,7 @@ with st.sidebar:
     st.divider()
 
     # ── 📱 スマホアクセス情報 ──
-    with st.expander("📱 スマホ・タブレットで見る", expanded=False):
+    with st.expander("📱 iPhone / Web で見る", expanded=False):
         try:
             import socket
             hostname = socket.gethostname()
@@ -1139,21 +1284,68 @@ with st.sidebar:
         </div>
         """, unsafe_allow_html=True)
 
-        st.caption("💡 ホーム画面に追加すればアプリのように使えます（Safari/Chrome共通）")
+        st.caption(f"💡 Safari で {APP_NAME} を「ホーム画面に追加」するとアプリのように使えます")
 
-    st.markdown("""
+    st.markdown(f"""
     <div style="background:linear-gradient(180deg,#FFFBF0 0%,#FAF3DC 100%);border:1px solid #C9A961;border-left:4px solid #C9A961;border-radius:2px;padding:10px 12px;font-size:0.74rem;color:#6B5A2E;line-height:1.6;">
     <b style="color:#8B6914;">◆ ご利用上の注意</b><br>
-    本サービスは学習・研究目的の情報提供であり、投資勧誘ではありません。投資判断はご自身の責任において行ってください。
+    {APP_DISCLAIMER}
     </div>
     """, unsafe_allow_html=True)
-    st.markdown("""
+    st.markdown(f"""
     <div style="text-align:center;margin-top:14px;color:#4A5568;font-size:0.7rem;line-height:1.7;border-top:1px solid #D5DDE8;padding-top:10px;">
-        <div style="font-family:'Hiragino Mincho ProN',serif;color:#0B3D91;letter-spacing:3px;font-size:0.8rem;">雅證券</div>
-        <div style="color:#C9A961;font-size:0.62rem;letter-spacing:2px;">MIYABI SECURITIES</div>
-        <div style="margin-top:6px;font-size:0.65rem;">Powered by Yahoo Finance / Google News<br>© 2026 MIYABI Terminal</div>
+        <div style="font-family:-apple-system,BlinkMacSystemFont,sans-serif;color:#0B3D91;letter-spacing:1px;font-size:0.8rem;font-weight:600;">{APP_FOOTER_LINE1}</div>
+        <div style="color:#C9A961;font-size:0.62rem;letter-spacing:1px;">{APP_FOOTER_LINE2}</div>
+        <div style="margin-top:6px;font-size:0.65rem;">Powered by Yahoo Finance / Google News<br>{APP_FOOTER_COPY}</div>
     </div>
     """, unsafe_allow_html=True)
+
+
+_layout_mode = st.session_state.get("layout_mode", "auto")
+if _layout_mode == "wide":
+    st.markdown("""
+    <style>
+    .main .block-container {
+        max-width: 100% !important;
+        padding-left: 2.5rem !important;
+        padding-right: 2.5rem !important;
+    }
+    .miyabi-header, .market-ticker {
+        margin-left: -2.5rem !important;
+        margin-right: -2.5rem !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+elif _layout_mode == "phone":
+    st.markdown("""
+    <style>
+    .main .block-container {
+        padding-left: 0.35rem !important;
+        padding-right: 0.35rem !important;
+    }
+    [data-testid="stHorizontalBlock"] {
+        flex-direction: column !important;
+        gap: 6px !important;
+    }
+    [data-testid="stHorizontalBlock"] > [data-testid="column"] {
+        min-width: 100% !important;
+        width: 100% !important;
+        flex: none !important;
+    }
+    iframe[title="streamlit_plotly_chart"] {
+        min-height: 260px !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+
+# 大和証券FXルール参考 — 維持率・価格予測アラーム（全ページ）
+try:
+    _daiwa_events = check_all_daiwa_alerts()
+    if _daiwa_events:
+        render_alarm_events(_daiwa_events, play_sound=True)
+except Exception:
+    pass
 
 
 # ════════════════════════════════════════════════
@@ -1725,7 +1917,7 @@ if page == "原油先物予測":
 # ════════════════════════════════════════════════
 elif page == "📐 チャートパターン検出（買い/売り）":
     st.title("📐 チャートパターン検出（買い / 売り）")
-    st.caption("大和証券流＋酒田五法｜**買い28種 + 売り27種**（55パターン完全網羅）")
+    st.caption("大和証券流＋酒田五法｜**参考パターン57種**（包み線・ピンバー対応）※投資助言ではありません")
 
     st.markdown("""
     <div style="background:linear-gradient(135deg,#F4F7FB 0%,#E8EEF8 100%);border-left:4px solid #C9A961;padding:10px 14px;border-radius:3px;margin-bottom:14px;">
@@ -1735,12 +1927,12 @@ elif page == "📐 チャートパターン検出（買い/売り）":
         <span style="font-size:0.72rem;color:#4A5568;line-height:1.35;">
         <b>【チャート型 8種】</b><br>
         🆎 ダブルボトム／👤 逆三尊／🚩 上昇フラッグ／📐 上昇三角／🔄 切下レジ→サポ転換／✨ ゴールデンクロス／📍 水平サポ反発／🔼 レジ→サポ転換<br>
-        <b>【爆益（酒田 底値圏） 2種】</b><br>
+        <b>【参考・底値圏パターン 2種】</b><br>
         📈 上げ三法／🚀 被せの上抜き<br>
-        <b>【益（酒田 底値圏・継続） 8種】</b><br>
-        ✨ 陽の二つ星／🔥 陰線連続後の大陽線／🦅 つばめ返し／🎏 陽のたすき線／🫶 陰の両つつみ／⚔️ 切り込み線／🎣 二本たくり線／🎋 上振れたすき<br>
-        <b>【微益（初動・継続弱） 10種】</b><br>
-        🤰 はらみ線／🪟 上昇窓／🤝 だき一本立ち／🎖 赤三兵／🧱 三積み上げ／🔝 リバーサルハイ／🏹 スラストアップ／📌 うえピンバー／🌟 宴の明星／🚧 赤三兵先詰まり
+        <b>【益（酒田 底値圏・継続） 10種】</b><br>
+        ✨ 陽の二つ星／🔥 陰線連続後の大陽線／🦅 つばめ返し／🎏 陽のたすき線／🫶 陰の両つつみ／⚔️ 切り込み線／🎣 二本たくり線／🎋 上振れたすき／🤝 <b>陽の包み線</b>／📌 <b>強気ピンバー</b><br>
+        <b>【微益（初動・継続弱） 8種】</b><br>
+        🤰 はらみ線／🪟 上昇窓／🎖 赤三兵／🧱 三積み上げ／🔝 リバーサルハイ／🏹 スラストアップ／🌟 宴の明星／🚧 赤三兵先詰まり
         </span>
       </div>
       <div>
@@ -1748,8 +1940,8 @@ elif page == "📐 チャートパターン検出（買い/売り）":
         <span style="font-size:0.74rem;color:#4A5568;line-height:1.35;">
         <b>【チャート型 8種】</b><br>
         🅜 ダブルトップ／👑 三尊天井／🏴 下降フラッグ／📉 下降三角／🔀 切上サポ転換／💀 デッドクロス／📌 水平レジ反落／🔽 サポ→レジ転換<br>
-        <b>【酒田・天井圏（今すぐ売り） 12種】</b><br>
-        🪢 首吊り線／🐦 三羽鳥／🍡 団子天井／👶 捨て子線／🟩 陽の陽はらみ／🫂 最後の抱き線／⚔ ツタイ打ち返し／🔝 三手放れ寄せ線／☁ 下げ足の被せ／🟥 陽の陰はらみ／🌊 波高い線／🪦 陰線五本<br>
+        <b>【酒田・天井圏（今すぐ売り） 14種】</b><br>
+        🪢 首吊り線／🐦 三羽鳥／🍡 団子天井／👶 捨て子線／🟩 陽の陽はらみ／🫂 最後の抱き線／⚔ ツタイ打ち返し／🔝 三手放れ寄せ線／☁ 下げ足の被せ／🟥 陽の陰はらみ／🫂 <b>陰の包み線</b>／⭐ <b>弱気ピンバー</b>／🌊 波高い線／🪦 陰線五本<br>
         <b>【酒田・待って売れ（下降継続） 7種】</b><br>
         ⬇ 下放れ二本黒／📉 下げ三法／👻 バケ線／😴 下値遊び／🎀 下放れタスキ／🔻 下放れ並び赤／🗡 入り首
         </span>
@@ -1758,7 +1950,11 @@ elif page == "📐 チャートパターン検出（買い/売り）":
     </div>
     """, unsafe_allow_html=True)
 
-    tab_single, tab_scan = st.tabs(["🔍 個別銘柄 詳細検出", "🌐 複数銘柄 一括スキャン"])
+    tab_single, tab_scan, tab_guide = st.tabs([
+        "🔍 個別銘柄 詳細検出",
+        "🌐 複数銘柄 一括スキャン",
+        "📖 ローソク足の読み方",
+    ])
 
     # ────────────────────────────────────────────
     # タブ1: 個別銘柄の詳細検出
@@ -1780,7 +1976,7 @@ elif page == "📐 チャートパターン検出（買い/売り）":
             cp_direction = {"🟢🔴 両方": "ALL", "🟢 買いのみ": "BUY", "🔴 売りのみ": "SELL"}[cp_direction_label]
 
         if st.button("🔍 パターン検出を実行", type="primary", use_container_width=True, key="cp_run"):
-            with st.spinner("55パターンを検出中..."):
+            with st.spinner("57パターンを検出中..."):
                 result = analyze_ticker_patterns(cp_ticker, period=cp_period, interval=cp_interval, direction=cp_direction)
 
             if result is None:
@@ -1999,7 +2195,7 @@ elif page == "📐 チャートパターン検出（買い/売り）":
                     # トレード計画サマリー
                     top = patterns[0]
                     is_buy_top = top.get("direction") == "BUY"
-                    dir_text = "🟢 買い（ロング）" if is_buy_top else "🔴 売り（ショート）"
+                    dir_text = "🟢 買い方向（参考）" if is_buy_top else "🔴 売り方向（参考）"
                     plan_msg = f"""
                     **🎯 最有力パターンのトレード計画 — {dir_text}**
 
@@ -2080,11 +2276,14 @@ elif page == "📐 チャートパターン検出（買い/売り）":
                     conf_buy = confirmed[confirmed["方向"] == "🟢 買い"]
                     conf_sell = confirmed[confirmed["方向"] == "🔴 売り"]
                     if not conf_buy.empty:
-                        st.markdown("#### 🟢 買い確定銘柄（即ロング候補）")
+                        st.markdown("#### 🟢 買いパターン確定（参考・自己判断）")
                         st.dataframe(conf_buy, use_container_width=True, hide_index=True)
                     if not conf_sell.empty:
-                        st.markdown("#### 🔴 売り確定銘柄（即ショート候補）")
+                        st.markdown("#### 🔴 売りパターン確定（参考・自己判断）")
                         st.dataframe(conf_sell, use_container_width=True, hide_index=True)
+
+    with tab_guide:
+        render_candlestick_guide()
 
 
 # ════════════════════════════════════════════════
@@ -2092,7 +2291,7 @@ elif page == "📐 チャートパターン検出（買い/売り）":
 # ════════════════════════════════════════════════
 elif page == "💎 ファンダメンタル売買判断":
     st.title("💎 ファンダメンタル売買判断")
-    st.caption("大和証券流｜時価総額・PER・増収率・配当性向による買い／売り条件チェック")
+    st.caption("参考スクリーニング条件｜時価総額・PER・増収率・配当性向（**投資助言ではありません**）")
 
     st.markdown(f"""
     <div style="background:linear-gradient(135deg,#F4F7FB 0%,#E8EEF8 100%);border-left:4px solid #C9A961;padding:12px 16px;border-radius:3px;margin-bottom:14px;">
@@ -3359,7 +3558,7 @@ elif page == "FXビューア":
 # ════════════════════════════════════════════════
 if page == "📊 ダッシュボード":
     st.title("マーケット・ダッシュボード")
-    st.caption("雅證券マーケット・ターミナル ─ 全市場の動向・アラート・要注目銘柄を一画面でチェック")
+    st.caption(f"{APP_NAME} ─ 全市場の動向・アラート・要注目銘柄を一画面でチェック")
 
     # ════════════════════════════════════════════════
     #  🆕 15分間隔 買値/売値 予測テーブル（最上部）
@@ -3581,6 +3780,80 @@ if page == "📊 ダッシュボード":
             <span style="color:#4A5568;">5戦略を過去データで検証</span>
         </div>
         """, unsafe_allow_html=True)
+
+
+# ════════════════════════════════════════════════
+#  🖥 3画面モニター（FX / 石油 / ドル — PC 3枚 or 1画面3列）
+# ════════════════════════════════════════════════
+elif page == "🏦 FX/CFD ターミナル":
+    st.title("🏦 FX/CFD ターミナル")
+    st.caption(f"{APP_NAME} — ブローカー風レイアウト（検討用・仮想口座のみ）")
+    if require_pro("cfd_terminal", title="Pro Research — CFDターミナル"):
+        render_cfd_terminal()
+
+elif page == "🖥 3画面モニター":
+    st.title("🖥 3画面モニター")
+    st.caption(
+        f"{APP_NAME} — 為替・石油・ドル指数を同時監視。"
+        "PC 3枚なら下記URLをモニターごとに開いてください。"
+    )
+    if not require_pro("monitor", title="Pro Research — 3画面モニター"):
+        st.stop()
+
+    _panel_filter = st.session_state.get("monitor_panel_filter", "all")
+    if _qp_panel in ("fx", "oil", "dollar", "all"):
+        _panel_filter = _qp_panel
+
+    _panel_labels = {
+        "all": "1画面3列（超ワイド / 3モニター横並び）",
+        "fx": "為替のみ（モニター1用）",
+        "oil": "石油・商品のみ（モニター2用）",
+        "dollar": "ドル・指数のみ（モニター3用）",
+    }
+    _pf = st.radio(
+        "表示パネル",
+        options=list(_panel_labels.keys()),
+        format_func=lambda k: _panel_labels[k],
+        horizontal=True,
+        index=list(_panel_labels.keys()).index(_panel_filter) if _panel_filter in _panel_labels else 0,
+        key="monitor_panel_filter_ui",
+    )
+    st.session_state["monitor_panel_filter"] = _pf
+
+    try:
+        _base = st.context.url if hasattr(st, "context") else ""
+    except Exception:
+        _base = "（Streamlit のアプリURL）"
+    with st.expander("📺 物理モニター3枚の開き方", expanded=_pf != "all"):
+        st.markdown(
+            f"""
+**同じ Wi‑Fi / 同じアカウントでログインしたうえで**、ブラウザを各モニターに移して次を開きます。
+
+| モニター | 用途 | URL（末尾に付ける） |
+|---------|------|---------------------|
+| 1 | 為替 | `?panel=fx` |
+| 2 | 石油・商品 | `?panel=oil` |
+| 3 | ドル・指数 | `?panel=dollar` |
+
+例: `{_base}?panel=fx`（ベースURLは環境により異なります）
+
+サイドバー **表示レイアウト → ワイド（PC全幅）** を選ぶと見やすくなります。
+            """
+        )
+
+    @st.cache_data(ttl=300)
+    def _cached_monitor_tables():
+        from interval_predictor import predict_all_intervals_compact
+        return predict_all_intervals_compact()
+
+    with st.spinner("市場データを取得中..."):
+        _mon_tables = _cached_monitor_tables()
+
+    st.markdown('<div class="monitor-tri-grid">', unsafe_allow_html=True)
+    render_tri_monitor(_mon_tables, panel_filter=_pf)
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    st.caption("💡 1画面3列は横幅 1400px 以上推奨。iPhone では縦に積まれます（表示レイアウト → iPhone向け）。")
 
 
 # ════════════════════════════════════════════════
@@ -4924,9 +5197,35 @@ elif page == "🔔 アラート":
         for t in triggered_now:
             st.warning(t["message"])
 
-    tab_set, tab_list, tab_guide, tab_log = st.tabs([
-        "⚙️ 新規アラート作成", "📋 設定中アラート", "📖 アラート種類ガイド", "📜 通知履歴"
+    tab_set, tab_list, tab_daiwa, tab_guide, tab_log = st.tabs([
+        "⚙️ 新規アラート作成", "📋 設定中アラート", "🏦 大和FXルール参考", "📖 アラート種類ガイド", "📜 通知履歴"
     ])
+
+    with tab_daiwa:
+        st.markdown("#### 🏦 大和証券 FX 証拠金アラート（参考・検討用）")
+        th = thresholds_for_loss_cut_base(100.0)
+        st.markdown(
+            f"""
+| ステータス | 条件（維持率） | 本アプリの動作 |
+|-----------|----------------|----------------|
+| 🟡 プレアラート | **{th['pre_alert']:.0f}%** 未満 | お知らせ + 短いビープ |
+| 🟠 アラート | **{th['alert']:.0f}%** 未満 | 警告 + ビープ2回 |
+| 🔴 ロスカット水準 | **{th['loss_cut']:.0f}%** 未満 | 強警告 + ビープ3回 |
+
+**維持率** = 有効証拠金（預金＋含み損益）÷ 建玉必要証拠金 × 100  
+出典: [ダイワFX 利用・取引ルール](https://www.daiwa.jp/products/fx/fx_store/rules_fx.html) を参考（Zaibase.finance は非公式シミュレーション）
+
+1. **🏦 FX/CFD ターミナル** で仮想注文を実行  
+2. 相場が逆行して維持率が下がると、画面上部で **アラームが鳴ります**  
+3. サイドバー **🔔 アラーム設定** で音 ON/OFF・クールダウンを変更
+            """
+        )
+        if st.button("🔄 今すぐアラーム判定", key="daiwa_check_btn"):
+            ev = check_all_daiwa_alerts()
+            if ev:
+                render_alarm_events(ev, play_sound=True)
+            else:
+                st.success("現在、発火条件のアラートはありません（仮想建玉がない場合も含む）")
 
     # ════════════════════════════════════════════════
     #  ガイドタブ：何のアラートが何で発火するかを表で表示
@@ -5268,9 +5567,14 @@ elif page == "📈 バックテスト":
                 st.error("比較実行に失敗しました")
 
 
+elif page == "📜 利用規約・免責":
+    render_legal_page()
+
+
 # ─── フッター ───
 st.divider()
 st.caption(
-    "⚠️ このアプリは学習・研究目的です。投資判断には使用しないでください。"
+    f"⚠️ {APP_DISCLAIMER} "
+    "｜メニュー「📜 利用規約・免責」で全文を確認 "
     "｜価格データ: Yahoo Finance｜ニュース: Google News"
 )

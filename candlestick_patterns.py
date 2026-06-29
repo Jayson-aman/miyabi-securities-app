@@ -1879,7 +1879,7 @@ def detect_bullish_engulfing(df: pd.DataFrame) -> Optional[dict]:
     stop_loss = c2["l"] * 0.995
     target = c2["c"] + c2["body"] * 1.8
     return {
-        "pattern": "だきの一本立ち（Bullish Engulfing）",
+        "pattern": "陽の包み線（Bullish Engulfing / だき一本立ち）",
         "icon": "🤝",
         "direction": "BUY",
         "detected": True,
@@ -1891,8 +1891,8 @@ def detect_bullish_engulfing(df: pd.DataFrame) -> Optional[dict]:
         "target_price": round(target, 4),
         "risk_reward": round((target - entry) / max(entry - stop_loss, 1e-9), 2),
         "breakout_confirmed": True,
-        "verdict": "🟡 微益（だきの一本立ち・包み陽線）",
-        "description": "前日陰線を1本で完全に飲み込む陽線。買い方優勢への転換サイン。",
+        "verdict": "🟢 益（陽の包み線・前日陰線を完全飲み込み）",
+        "description": "前日陰線の実体を1本の陽線が包み込む。底値圏では買い方優勢への転換サイン。",
     }
 
 
@@ -2097,7 +2097,7 @@ def detect_upper_pinbar(df: pd.DataFrame) -> Optional[dict]:
     stop_loss = last["l"] * 0.995
     target = last["c"] + (last["c"] - stop_loss) * 2
     return {
-        "pattern": "うえピンバー（Upper Pinbar）",
+        "pattern": "強気ピンバー（下ヒゲ・Bullish Pinbar）",
         "icon": "📌",
         "direction": "BUY",
         "detected": True,
@@ -2109,8 +2109,8 @@ def detect_upper_pinbar(df: pd.DataFrame) -> Optional[dict]:
         "target_price": round(target, 4),
         "risk_reward": round((target - entry) / max(entry - stop_loss, 1e-9), 2),
         "breakout_confirmed": True,
-        "verdict": "🟡 微益（うえピンバー・下ヒゲ長い反発）",
-        "description": "長い下ヒゲで売り圧力を跳ね返した小実体。底値拾いのピンバー。",
+        "verdict": "🟢 益（強気ピンバー・下ヒゲで反発）",
+        "description": "小実体＋長い下ヒゲ。底値圏で売り圧力を跳ね返したピンバー（ハンマー型）。",
     }
 
 
@@ -2209,6 +2209,102 @@ def detect_advance_block(df: pd.DataFrame) -> Optional[dict]:
     }
 
 
+# ════════════════════════════════════════════════
+#  包み線・ピンバー（売り側追加）
+# ════════════════════════════════════════════════
+
+def detect_bearish_engulfing(df: pd.DataFrame) -> Optional[dict]:
+    """陰の包み線: 天井圏で陽線の実体を陰線が完全に包み込む"""
+    if len(df) < 30 or not _is_top_zone(df):
+        return None
+    c1 = _candle_metrics(df.iloc[-2])
+    c2 = _candle_metrics(df.iloc[-1])
+    if not c1["is_bull"] or c1["body_ratio"] < 0.4:
+        return None
+    if not c2["is_bear"] or c2["body_ratio"] < 0.55:
+        return None
+    if c2["o"] < c1["c"]:
+        return None
+    if c2["c"] > c1["o"]:
+        return None
+    if c2["body"] < c1["body"] * 1.1:
+        return None
+
+    confidence = 72
+    ratio = c2["body"] / max(c1["body"], 1e-9)
+    if ratio > 1.5:
+        confidence += 12
+    if c2["body_ratio"] > 0.7:
+        confidence += 8
+    confidence = min(100, confidence)
+
+    entry = c2["c"]
+    stop_loss = c2["h"] * 1.005
+    target = c2["c"] - c2["body"] * 1.8
+
+    return {
+        "pattern": "陰の包み線（Bearish Engulfing）",
+        "icon": "🫂",
+        "direction": "SELL",
+        "detected": True,
+        "confidence": confidence,
+        "engulf_ratio": round(ratio, 2),
+        "current_price": round(c2["c"], 4),
+        "entry_price": round(entry, 4),
+        "stop_loss": round(stop_loss, 4),
+        "target_price": round(target, 4),
+        "risk_reward": round((entry - target) / max(stop_loss - entry, 1e-9), 2),
+        "breakout_confirmed": True,
+        "verdict": "🔴 売り（陰の包み線・前日陽線を完全飲み込み）",
+        "description": "天井圏で陽線の実体を陰線が包み込む。売り方優勢への転換サイン。",
+    }
+
+
+def detect_bearish_pinbar(df: pd.DataFrame) -> Optional[dict]:
+    """弱気ピンバー（上ヒゲ・流れ星）: 天井圏で長い上ヒゲ＋小実体"""
+    if len(df) < 30 or not _is_top_zone(df):
+        return None
+    last = _candle_metrics(df.iloc[-1])
+    if last["body_ratio"] > 0.35:
+        return None
+    if last["upper"] < last["body"] * 2:
+        return None
+    if last["upper"] <= last["lower"] * 1.2:
+        return None
+    if last["lower"] > last["body"] * 1.0:
+        return None
+
+    confidence = 68
+    if last["upper"] >= last["body"] * 3:
+        confidence += 12
+    if last["is_bear"]:
+        confidence += 10
+    if _is_uptrend_zone(df, lookback=15, min_rise_pct=0.04):
+        confidence += 8
+    confidence = min(100, confidence)
+
+    entry = last["c"]
+    stop_loss = last["h"] * 1.005
+    target = last["c"] - last["total"] * 2
+
+    return {
+        "pattern": "弱気ピンバー（上ヒゲ・Bearish Pinbar / 流れ星）",
+        "icon": "⭐",
+        "direction": "SELL",
+        "detected": True,
+        "confidence": confidence,
+        "wick_to_body_ratio": round(last["upper"] / max(last["body"], 1e-9), 2),
+        "current_price": round(last["c"], 4),
+        "entry_price": round(entry, 4),
+        "stop_loss": round(stop_loss, 4),
+        "target_price": round(target, 4),
+        "risk_reward": round((entry - target) / max(stop_loss - entry, 1e-9), 2),
+        "breakout_confirmed": True,
+        "verdict": "🔴 売り（弱気ピンバー・上ヒゲで反落警戒）",
+        "description": "小実体＋長い上ヒゲ。天井圏で買いが拒否された流れ星型ピンバー。",
+    }
+
+
 # 買いパターン一括エクスポート
 CANDLESTICK_BUY_DETECTORS = [
     # 爆益
@@ -2223,15 +2319,15 @@ CANDLESTICK_BUY_DETECTORS = [
     ("kirikomi_sen", detect_kirikomi_sen),
     ("nihon_takuri", detect_nihon_takuri),
     ("upper_gap_tasuki", detect_upper_gap_tasuki),
+    ("bullish_engulfing", detect_bullish_engulfing),
+    ("bullish_pinbar", detect_upper_pinbar),
     # 微益
     ("bullish_harami", detect_bullish_harami),
     ("rising_window", detect_rising_window),
-    ("bullish_engulfing", detect_bullish_engulfing),
     ("three_white_soldiers", detect_three_white_soldiers),
     ("three_stack_up", detect_three_stack_up),
     ("reversal_high", detect_reversal_high),
     ("thrust_up", detect_thrust_up),
-    ("upper_pinbar", detect_upper_pinbar),
     ("morning_star", detect_morning_star),
     ("advance_block", detect_advance_block),
 ]
@@ -2253,6 +2349,8 @@ CANDLESTICK_SELL_DETECTORS = [
     ("three_gap_doji", detect_three_gap_doji),
     ("dark_cloud_cover", detect_dark_cloud_cover),
     ("yang_yin_harami", detect_yang_yin_harami),
+    ("bearish_engulfing", detect_bearish_engulfing),
+    ("bearish_pinbar", detect_bearish_pinbar),
     ("high_wave", detect_high_wave),
     ("five_bears", detect_five_bears),
     # 待って売れ（下降継続）
