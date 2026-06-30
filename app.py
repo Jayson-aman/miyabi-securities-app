@@ -2712,10 +2712,10 @@ elif page == "株式ビューア":
                 )
 
             st.markdown("#### 時間軸 × 予測価格グラフ（1/3/5/15/30/60分）")
-            stock_horizon_mode = st.radio(
+            stock_horizon_mode = st.selectbox(
                 "予測レンジ",
                 ["60分", "6時間", "24時間", "3日"],
-                horizontal=True,
+                index=0,
                 key=f"stock_horizon_mode_{ticker}",
             )
             stock_horizons = {
@@ -3614,10 +3614,10 @@ elif page == "FXビューア":
         st.plotly_chart(fig, use_container_width=True)
 
         st.markdown("#### 時間軸 × 予測価格グラフ（1/3/5/15/30/60分）")
-        fx_horizon_mode = st.radio(
+        fx_horizon_mode = st.selectbox(
             "予測レンジ",
             ["60分", "6時間", "24時間", "3日"],
-            horizontal=True,
+            index=0,
             key=f"fx_horizon_mode_{ticker}",
         )
         fx_horizons = {
