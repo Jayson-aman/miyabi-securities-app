@@ -98,6 +98,7 @@ def _momentum_prediction(closes: pd.Series, steps: int = 4) -> tuple:
     # 最近5本の平均変化
     recent_diffs = closes.diff().tail(5).dropna()
     avg_change = float(recent_diffs.mean())
+    latest_diff = float(recent_diffs.iloc[-1]) if not recent_diffs.empty else 0.0
 
     # EMA勾配（最近10本）
     ema = closes.ewm(span=10, adjust=False).mean()
@@ -106,8 +107,13 @@ def _momentum_prediction(closes: pd.Series, steps: int = 4) -> tuple:
     # ボラティリティ
     vol = float(closes.diff().tail(20).std()) if len(closes) >= 20 else abs(avg_change) * 2
 
-    # 加重平均（モメンタム7割、EMA勾配3割）
-    expected_step = avg_change * 0.7 + ema_slope * 0.3
+    # ショック時は直近変化を強めに反映（急変追従）
+    shock_ratio = abs(latest_diff) / max(abs(avg_change), 1e-9) if avg_change != 0 else abs(latest_diff) * 100
+    shock_weight = 0.35 if shock_ratio >= 2.2 else 0.0
+
+    # 加重平均（モメンタム65% / EMA25% / 直近ショック10-35%）
+    base_step = avg_change * 0.65 + ema_slope * 0.25
+    expected_step = base_step * (1 - shock_weight) + latest_diff * shock_weight
 
     last = float(closes.iloc[-1])
     predicted = []
@@ -126,6 +132,66 @@ def _momentum_prediction(closes: pd.Series, steps: int = 4) -> tuple:
             conf = 60
         confidences.append(round(conf))
     return predicted, confidences
+
+
+def _detect_intraday_shock(closes: pd.Series) -> dict:
+    """
+    突発的な値動き（ショック）を検知して、予測根拠として返す。
+    """
+    if closes is None or len(closes) < 30:
+        return {
+            "is_shock": False,
+            "window": "—",
+            "move_pct": 0.0,
+            "zscore": 0.0,
+            "direction": "neutral",
+            "reason": "データ不足",
+        }
+
+    rets = closes.pct_change().dropna()
+    base_vol = float(rets.tail(20).std()) if len(rets) >= 20 else float(rets.std())
+    if base_vol <= 0:
+        return {
+            "is_shock": False,
+            "window": "—",
+            "move_pct": 0.0,
+            "zscore": 0.0,
+            "direction": "neutral",
+            "reason": "ボラティリティ計算不可",
+        }
+
+    latest = float(closes.iloc[-1])
+    p1 = float(closes.iloc[-2])
+    p3 = float(closes.iloc[-4]) if len(closes) >= 4 else p1
+    p5 = float(closes.iloc[-6]) if len(closes) >= 6 else p1
+
+    m1 = (latest / p1 - 1) * 100 if p1 else 0.0
+    m3 = (latest / p3 - 1) * 100 if p3 else 0.0
+    m5 = (latest / p5 - 1) * 100 if p5 else 0.0
+
+    # 15分足基準で概算 z-score（3本=45分, 5本=75分）
+    z1 = abs((m1 / 100) / base_vol)
+    z3 = abs((m3 / 100) / (base_vol * np.sqrt(3)))
+    z5 = abs((m5 / 100) / (base_vol * np.sqrt(5)))
+
+    scores = [("15分", m1, z1), ("45分", m3, z3), ("75分", m5, z5)]
+    window, move, zscore = max(scores, key=lambda x: x[2])
+    is_shock = zscore >= 2.8 or abs(move) >= 0.35
+    direction = "up" if move > 0 else "down" if move < 0 else "neutral"
+
+    if is_shock:
+        reason = f"⚠️ 突発変動検知: {window}で {move:+.3f}%（z={zscore:.2f}）"
+    else:
+        reason = f"通常変動域: 最大 {window} {move:+.3f}%（z={zscore:.2f}）"
+
+    return {
+        "is_shock": is_shock,
+        "window": window,
+        "move_pct": round(move, 3),
+        "zscore": round(zscore, 2),
+        "direction": direction,
+        "reason": reason,
+    }
 
 
 # ════════════════════════════════════════════════
@@ -238,6 +304,7 @@ def _build_reasoning(ticker: str, closes: pd.Series, predicted_60min: float, cur
             "technical_reasons": [],
             "macro_drivers": [],
             "key_risk": "—",
+            "shock": _detect_intraday_shock(closes),
         }
 
     # ── テクニカル根拠 ──
@@ -307,7 +374,19 @@ def _build_reasoning(ticker: str, closes: pd.Series, predicted_60min: float, cur
     else:
         key_risk = "✅ 標準的な相場環境 → 予測に沿いやすい"
 
-    summary = f"{ema_slope_pct:+.2f}%の勾配・RSI{rsi:.0f}・ボラ{vol_pct:.2f}%から、60分先 {diff_pct:+.3f}% を予測"
+    shock = _detect_intraday_shock(closes)
+    if shock["is_shock"]:
+        tech.insert(0, shock["reason"])
+        if shock["direction"] == "up":
+            key_risk = "🚨 急騰ショック中: 押し戻し・往復ビンタに注意"
+        elif shock["direction"] == "down":
+            key_risk = "🚨 急落ショック中: 自律反発・急反転に注意"
+        summary = (
+            f"突発変動モード（{shock['window']} {shock['move_pct']:+.3f}%）を優先し、"
+            f"60分先 {diff_pct:+.3f}% を予測"
+        )
+    else:
+        summary = f"{ema_slope_pct:+.2f}%の勾配・RSI{rsi:.0f}・ボラ{vol_pct:.2f}%から、60分先 {diff_pct:+.3f}% を予測"
 
     return {
         "summary": summary,
@@ -319,6 +398,7 @@ def _build_reasoning(ticker: str, closes: pd.Series, predicted_60min: float, cur
         "ema_slope_pct": round(ema_slope_pct, 3),
         "vol_pct": round(vol_pct, 3),
         "predicted_60min_pct": round(diff_pct, 3),
+        "shock": shock,
     }
 
 

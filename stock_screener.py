@@ -330,6 +330,23 @@ def predict_stock_1min(ticker: str) -> Optional[dict]:
         score -= 0.15
         factors.append(f"直近5分で{micro_trend:.2f}%下落中")
 
+    # 突発変動（ショック）判定
+    ret_1m = close.pct_change().dropna()
+    base_vol = float(ret_1m.tail(60).std()) if len(ret_1m) >= 60 else float(ret_1m.std())
+    move_1m = (close.iloc[-1] / close.iloc[-2] - 1) * 100 if len(close) >= 2 else 0.0
+    move_3m = (close.iloc[-1] / close.iloc[-4] - 1) * 100 if len(close) >= 4 else move_1m
+    z_1m = abs((move_1m / 100) / base_vol) if base_vol > 0 else 0.0
+    z_3m = abs((move_3m / 100) / (base_vol * np.sqrt(3))) if base_vol > 0 else 0.0
+    is_shock = (z_1m >= 3.0) or (z_3m >= 3.0) or (abs(move_1m) >= 0.7) or (abs(move_3m) >= 1.2)
+
+    if is_shock:
+        shock_dir = "急騰" if move_3m > 0 else "急落"
+        shock_msg = f"⚠️ 突発変動検知: 3分で{move_3m:+.2f}%（z≈{max(z_1m, z_3m):.2f}）"
+        factors.insert(0, shock_msg)
+        # 急変時は直近変動を強く反映して追従
+        score += 0.35 if move_3m > 0 else -0.35
+        factors.append(f"{shock_dir}局面のため、短期予測は直近値動き追従を優先")
+
     # 予測レンジ
     recent_vol = close.pct_change().tail(30).std()
     range_pct = recent_vol * 2 * current
@@ -363,6 +380,12 @@ def predict_stock_1min(ticker: str) -> Optional[dict]:
         "current_price": round(current, 2),
         "predicted_range": (round(predicted_low, 2), round(predicted_high, 2)),
         "factors": factors,
+        "shock": {
+            "is_shock": bool(is_shock),
+            "move_1m_pct": round(move_1m, 3),
+            "move_3m_pct": round(move_3m, 3),
+            "zscore": round(max(z_1m, z_3m), 2),
+        },
     }
 
 

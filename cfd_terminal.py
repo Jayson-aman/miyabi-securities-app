@@ -50,7 +50,7 @@ def broker_terminal_css() -> str:
         overflow: hidden;
     }
     .broker-topbar {
-        background: linear-gradient(180deg, #1e3a5f 0%, #152a45 100%);
+        background: linear-gradient(180deg, #0f52ba 0%, #0b3a8c 100%);
         color: #e8f1ff;
         padding: 8px 14px;
         font-size: 0.78rem;
@@ -58,9 +58,9 @@ def broker_terminal_css() -> str:
         justify-content: space-between;
         flex-wrap: wrap;
         gap: 8px;
-        border-bottom: 2px solid #0066cc;
+        border-bottom: 2px solid #0f52ba;
     }
-    .broker-topbar b { color: #7ec8ff; }
+    .broker-topbar b { color: #9ad3ff; }
     .broker-quote-row {
         display: flex;
         gap: 6px;
@@ -97,7 +97,7 @@ def broker_terminal_css() -> str:
         background: linear-gradient(180deg, #eef3f9 0%, #dde8f4 100%) !important;
     }
     .main .block-container {
-        background: #f0f4f8;
+        background: #eef4ff;
     }
 </style>
 """
@@ -126,7 +126,8 @@ def _fmt_quote(value: float, meta: dict) -> str:
 
 
 def _chart(ticker: str, label: str, height: int = 340) -> pd.DataFrame | None:
-    df = fetch_market_data(ticker, period="2d", interval="5m")
+    # 1分足で直近データを表示（最新データを1分単位で確認）
+    df = fetch_market_data(ticker, period="1d", interval="1m")
     if df is None or df.empty:
         st.caption(f"{label}: チャートなし")
         return None
@@ -145,7 +146,7 @@ def _chart(ticker: str, label: str, height: int = 340) -> pd.DataFrame | None:
     fig.update_layout(
         height=height,
         margin=dict(l=4, r=4, t=28, b=4),
-        title=dict(text=label, font=dict(size=12, color="#5eb3ff")),
+        title=dict(text=f"{label}（1分足）", font=dict(size=12, color="#9ad3ff")),
         paper_bgcolor="#0f1419",
         plot_bgcolor="#141b24",
         xaxis=dict(showgrid=False, color="#8899aa"),
@@ -221,13 +222,14 @@ def render_cfd_terminal() -> None:
         )
         chart_df = _chart(ticker, meta["label"])
 
-        # 直近足の利確ヒント（日足優先、なければ5分足）
+        # 直近足の利確ヒント（1分足を優先）
         hint_df = None
-        daily_df = fetch_market_data(ticker, period="1mo", interval="1d")
-        if daily_df is not None and not daily_df.empty and len(daily_df) >= 10:
-            hint_df = daily_df
-        elif chart_df is not None and not chart_df.empty and len(chart_df) >= 10:
+        if chart_df is not None and not chart_df.empty and len(chart_df) >= 10:
             hint_df = chart_df
+        else:
+            daily_df = fetch_market_data(ticker, period="1mo", interval="1d")
+            if daily_df is not None and not daily_df.empty and len(daily_df) >= 10:
+                hint_df = daily_df
         if hint_df is not None and len(hint_df) >= 10:
             hint = analyze_live_candle_hint(hint_df, meta["label"])
             if hint.get("ok"):
@@ -253,7 +255,7 @@ def render_cfd_terminal() -> None:
                 }
                 for x in pred["intervals"]
             ]
-            st.markdown("**15分刻み AI予測（参考）**")
+            st.markdown("**AI予測（参考）**")
             st.dataframe(pd.DataFrame(iv_rows), use_container_width=True, hide_index=True)
 
     with col_order:

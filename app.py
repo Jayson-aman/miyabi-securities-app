@@ -109,6 +109,7 @@ from fx_email_alerts import check_and_send_fx_move_alerts
 from monitor_panel import render_tri_monitor
 from subscription import billing_enabled, has_pro, require_pro, render_billing_sidebar
 from cfd_terminal import render_cfd_terminal
+from daiwa_market_board import render_daiwa_market_board
 from daiwa_margin_alerts import check_all_daiwa_alerts, thresholds_for_loss_cut_base
 from alarm_ui import render_alarm_events, render_alarm_settings_sidebar
 from candlestick_guide import render_candlestick_guide
@@ -153,7 +154,7 @@ if _qp_panel in ("fx", "oil", "dollar", "all"):
 
 # ════════════════════════════════════════════════
 #  Zaibase.Economic Research デザインシステム
-#  - メインカラー: #0B3D91 / アクセント: #C9A961
+#  - メインカラー: Sapphire Blue #0F52BA / アクセント: #C9A961
 # ════════════════════════════════════════════════
 st.markdown("""
 <style>
@@ -187,7 +188,7 @@ st.markdown("""
         background:
             radial-gradient(circle at 15% 100%, rgba(244,214,226,0.15) 0%, transparent 50%),
             radial-gradient(circle at 85% 0%, rgba(201,169,97,0.18) 0%, transparent 55%),
-            linear-gradient(135deg, #0B3D91 0%, #1A2D6E 50%, #0A1B4A 100%);
+            linear-gradient(135deg, #0F52BA 0%, #0B3A8C 50%, #082A66 100%);
         color: #fff;
         padding: 18px 28px;
         margin: -16px -24px 0 -24px;
@@ -196,7 +197,7 @@ st.markdown("""
         align-items: center;
         border-bottom: 3px solid;
         border-image: linear-gradient(90deg, #C9A961 0%, #F0D580 50%, #C9A961 100%) 1;
-        box-shadow: 0 4px 16px rgba(11,61,145,0.25);
+        box-shadow: 0 4px 16px rgba(15,82,186,0.25);
         position: relative;
         overflow: hidden;
     }
@@ -1036,7 +1037,7 @@ render_legal_banner()
 # ─── サイドバー ───
 with st.sidebar:
     st.markdown(f"""
-    <div style="background:linear-gradient(135deg,#0B3D91 0%,#1A2D6E 100%);color:#fff;padding:14px 12px;border-radius:3px;margin-bottom:14px;text-align:center;border:1px solid #C9A961;box-shadow:0 2px 8px rgba(11,61,145,0.2);">
+    <div style="background:linear-gradient(135deg,#0F52BA 0%,#0B3A8C 100%);color:#fff;padding:14px 12px;border-radius:3px;margin-bottom:14px;text-align:center;border:1px solid #C9A961;box-shadow:0 2px 8px rgba(15,82,186,0.2);">
         <div style="font-family:-apple-system,BlinkMacSystemFont,sans-serif;font-size:1.1rem;font-weight:700;letter-spacing:0.5px;background:linear-gradient(135deg,#C9A961 0%,#F0D580 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;line-height:1.25;">{APP_SHORT}<span style="font-size:0.72rem;">.{APP_BRAND_SUFFIX}</span></div>
         <div style="font-size:0.65rem;letter-spacing:3px;color:#C9A961;margin-top:4px;">MENU</div>
         <div style="font-size:0.7rem;opacity:0.85;margin-top:2px;letter-spacing:1px;">{APP_MENU_LABEL}</div>
@@ -1068,6 +1069,7 @@ with st.sidebar:
         " ",
         [
             "📊 ダッシュボード",
+            "🏛 取扱検討株式・市場情報",
             "🏦 FX/CFD ターミナル",
             "🖥 3画面モニター",
             "💴 円相場 総合分析",
@@ -2687,6 +2689,16 @@ elif page == "株式ビューア":
                     unsafe_allow_html=True,
                 )
 
+            shock = pred_1m.get("shock", {})
+            if shock.get("is_shock"):
+                st.warning(
+                    "⚠️ 突発値動きを検知: "
+                    f"1分 {shock.get('move_1m_pct', 0):+.3f}% / "
+                    f"3分 {shock.get('move_3m_pct', 0):+.3f}% / "
+                    f"z={shock.get('zscore', 0):.2f}。"
+                    "予測は通常時よりブレやすいため、理由欄を優先して確認してください。"
+                )
+
             # 1分足チャート
             st.markdown("#### 1分足チャート（直近）")
             with st.spinner("1分足チャートを生成中..."):
@@ -3626,10 +3638,12 @@ if page == "📊 ダッシュボード":
                     summary_rows = []
                     for r in cat_reasonings:
                         rsn = r["reasoning"]
+                        shock = rsn.get("shock", {})
                         summary_rows.append({
                             "銘柄": r["label"],
                             "60分先方向": r["direction_60min"],
                             "60分予想変化%": f"{r['diff_60min_pct']:+.3f}%",
+                            "突発": "⚠️有" if shock.get("is_shock") else "—",
                             "RSI": rsn["rsi"],
                             "EMA勾配%": f"{rsn['ema_slope_pct']:+.3f}%",
                             "ボラ%": f"{rsn['vol_pct']:.3f}%",
@@ -3642,6 +3656,8 @@ if page == "📊 ダッシュボード":
                     with st.expander(f"📖 {cat} 各銘柄の詳しい根拠を見る（クリックで展開）"):
                         for r in cat_reasonings:
                             rsn = r["reasoning"]
+                            shock = rsn.get("shock", {})
+                            shock_line = shock.get("reason", "")
                             st.markdown(f"""
                             <div style="background:#fff;border:1px solid #D5DDE8;border-left:4px solid {r['color_60min']};padding:11px 15px;margin:6px 0;border-radius:0 3px 3px 0;">
                                 <div style="display:flex;justify-content:space-between;align-items:center;">
@@ -3661,6 +3677,9 @@ if page == "📊 ダッシュボード":
                                 <div style="margin-top:5px;font-size:0.83rem;color:#1A2238;">
                                     <b style="color:#D32030;">🌍 {rsn['macro_label']}:</b><br>
                                     &nbsp;&nbsp;{rsn['macro_drivers']}
+                                </div>
+                                <div style="margin-top:5px;font-size:0.83rem;color:#8B0000;">
+                                    {shock_line if shock_line else ""}
                                 </div>
                                 <div style="margin-top:5px;font-size:0.83rem;color:#8B0000;">
                                     {rsn['key_risk']}
@@ -3786,6 +3805,11 @@ if page == "📊 ダッシュボード":
 # ════════════════════════════════════════════════
 #  🖥 3画面モニター（FX / 石油 / ドル — PC 3枚 or 1画面3列）
 # ════════════════════════════════════════════════
+elif page == "🏛 取扱検討株式・市場情報":
+    st.title("🏛 取扱検討株式・市場情報")
+    st.caption("サファイアブルー基調｜公開メニュー構成を網羅｜最新1分足データを反映")
+    render_daiwa_market_board()
+
 elif page == "🏦 FX/CFD ターミナル":
     st.title("🏦 FX/CFD ターミナル")
     st.caption(f"{APP_NAME} — ブローカー風レイアウト（検討用・仮想口座のみ）")
@@ -5017,6 +5041,14 @@ elif page == "₿ 仮想通貨":
             st.write("**判断根拠**")
             for f in pred.get("factors", pred.get("reasons", [])):
                 st.markdown(f'<div class="factor-item">{f}</div>', unsafe_allow_html=True)
+            s = pred.get("shock", {})
+            if s.get("is_shock"):
+                st.error(
+                    "🚨 突発変動モード: "
+                    f"1分 {s.get('move_1m_pct', 0):+.3f}% / "
+                    f"3分 {s.get('move_3m_pct', 0):+.3f}% / "
+                    f"z={s.get('zscore', 0):.2f}"
+                )
         else:
             st.info("予測データが不足しています。")
 
