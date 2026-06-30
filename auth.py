@@ -338,7 +338,7 @@ def is_authenticated() -> bool:
 def _branding_header(subtitle: str):
     st.markdown(f"""
     <div style="background:linear-gradient(135deg,#0B3D91 0%,#1A2D6E 100%);color:#fff;padding:24px;border-radius:6px;text-align:center;border:2px solid #C9A961;margin-bottom:20px;">
-      <div style="font-family:-apple-system,BlinkMacSystemFont,sans-serif;font-size:2rem;font-weight:700;letter-spacing:2px;background:linear-gradient(135deg,#C9A961 0%,#F0D580 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;">{APP_LOGO_LETTER}</div>
+      <div style="font-family:'Yu Mincho','Hiragino Mincho ProN','MS Mincho','Noto Serif JP',serif;font-size:3.2rem;font-weight:700;letter-spacing:2px;line-height:1;background:linear-gradient(135deg,#C9A961 0%,#F0D580 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;">{APP_LOGO_LETTER}</div>
       <div style="font-size:0.85rem;letter-spacing:3px;color:#C9A961;margin-top:6px;">{APP_NAME}</div>
       <div style="font-size:1rem;margin-top:12px;">{subtitle}</div>
     </div>
