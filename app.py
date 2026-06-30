@@ -3783,23 +3783,34 @@ if page == "📊 ダッシュボード":
     with col_right:
         st.markdown("""
         <div style="background:linear-gradient(90deg,#0B3D91 0%,#1A4FA8 100%);color:#fff;padding:7px 14px;border-radius:3px 3px 0 0;font-weight:600;font-size:0.86rem;border-bottom:2px solid #C9A961;letter-spacing:1.5px;font-family:'Hiragino Mincho ProN',serif;">
-            <span style="color:#C9A961;">❖</span> サービスご案内
+            <span style="color:#C9A961;">❖</span> サービスご案内（クリックで移動）
         </div>
-        <div style="background:#fff;border:1px solid #D5DDE8;border-top:none;padding:16px 18px;border-radius:0 0 3px 3px;font-size:0.83rem;line-height:1.8;box-shadow:0 2px 6px rgba(11,61,145,0.05);">
-            <b style="color:#0B3D91;">🛢 原油先物予測</b><br>
-            <span style="color:#4A5568;">ニュース＋テクニカルでAI予測</span><br><br>
-            <b style="color:#0B3D91;">📈 株式ビューア</b><br>
-            <span style="color:#4A5568;">日米株式・銘柄スクリーニング</span><br><br>
-            <b style="color:#0B3D91;">💱 FXビューア</b><br>
-            <span style="color:#4A5568;">円高/円安ピーク時刻予測</span><br><br>
-            <b style="color:#0B3D91;">🚀 新興・新発掘銘柄</b><br>
-            <span style="color:#4A5568;">11テーマ・買い時/売り時提示</span><br><br>
-            <b style="color:#0B3D91;">🔔 アラート</b><br>
-            <span style="color:#4A5568;">価格・テクニカルで自動通知</span><br><br>
-            <b style="color:#0B3D91;">📈 バックテスト</b><br>
-            <span style="color:#4A5568;">5戦略を過去データで検証</span>
-        </div>
+        <div style="background:#fff;border:1px solid #D5DDE8;border-top:none;padding:12px 14px;border-radius:0 0 3px 3px;box-shadow:0 2px 6px rgba(11,61,145,0.05);">
         """, unsafe_allow_html=True)
+
+        service_links = [
+            ("🛢 原油先物予測", "ニュース＋テクニカルでAI予測", "原油先物予測"),
+            ("📈 株式ビューア", "日米株式・銘柄スクリーニング", "株式ビューア"),
+            ("💱 FXビューア", "円高/円安ピーク時刻予測", "FXビューア"),
+            ("🚀 新興・新発掘銘柄", "11テーマ・買い時/売り時提示", "🚀 新興・新発掘銘柄"),
+            ("🔔 アラート", "価格・テクニカルで自動通知", "🔔 アラート"),
+            ("📈 バックテスト", "5戦略を過去データで検証", "📈 バックテスト"),
+        ]
+
+        for i, (title, desc, target_page) in enumerate(service_links):
+            c_txt, c_btn = st.columns([4.8, 1.2])
+            with c_txt:
+                st.markdown(
+                    f"<div style='color:#0B3D91;font-weight:700;margin-top:4px;'>{title}</div>"
+                    f"<div style='color:#4A5568;font-size:0.82rem;margin-bottom:8px;'>{desc}</div>",
+                    unsafe_allow_html=True,
+                )
+            with c_btn:
+                if st.button("開く", key=f"svc_open_{i}", use_container_width=True):
+                    st.session_state["main_page"] = target_page
+                    st.rerun()
+
+        st.markdown("</div>", unsafe_allow_html=True)
 
 
 # ════════════════════════════════════════════════
