@@ -45,7 +45,12 @@ from yen_predictor import predict_yen_peaks
 from economic_calendar import fetch_economic_news, get_summary
 from person_profiles import PROFILES, get_profile_summary_for_display
 from military_monitor import fetch_military_news, get_military_summary
-from stock_screener import scan_all_stocks, get_top_movers, predict_stock_1min
+from stock_screener import (
+    scan_all_stocks,
+    get_top_movers,
+    predict_stock_1min,
+    predict_multi_horizon_path,
+)
 from emerging_stocks import (
     EMERGING_STOCKS,
     analyze_emerging_stock,
@@ -2706,6 +2711,69 @@ elif page == "株式ビューア":
                     "予測は通常時よりブレやすいため、理由欄を優先して確認してください。"
                 )
 
+            st.markdown("#### 時間軸 × 予測価格グラフ（1/3/5/15/30/60分）")
+            mh = predict_multi_horizon_path(ticker, horizons=[1, 3, 5, 15, 30, 60])
+            if mh and mh.get("points"):
+                p_df = pd.DataFrame(mh["points"])
+                st.markdown("##### シミュレーション設定（開始金額ベース）")
+                s1, s2, s3 = st.columns([2, 1.6, 1.4])
+                with s1:
+                    start_amount = st.number_input(
+                        "開始金額",
+                        min_value=10_000,
+                        max_value=1_000_000_000,
+                        value=100_000,
+                        step=10_000,
+                        key=f"stock_start_amount_{ticker}",
+                    )
+                with s2:
+                    side = st.radio("方向", ["買い", "売り"], horizontal=True, key=f"stock_side_{ticker}")
+                with s3:
+                    if st.button("現在値で開始", key=f"stock_set_entry_{ticker}", use_container_width=True):
+                        st.session_state[f"stock_entry_price_{ticker}"] = float(mh["current_price"])
+                entry_price = float(st.session_state.get(f"stock_entry_price_{ticker}", mh["current_price"]))
+                st.caption(f"開始価格: {currency}{entry_price:,.2f}（クリック時固定）")
+
+                qty = float(start_amount) / max(entry_price, 1e-9)
+                if side == "買い":
+                    p_df["損益(円)"] = (p_df["price"] - entry_price) * qty
+                else:
+                    p_df["損益(円)"] = (entry_price - p_df["price"]) * qty
+                p_df["想定評価額(円)"] = float(start_amount) + p_df["損益(円)"]
+
+                fig_path = go.Figure()
+                fig_path.add_trace(go.Scatter(
+                    x=p_df["label"],
+                    y=p_df["price"],
+                    mode="lines+markers+text",
+                    text=[f"{v:+.2f}%" if i > 0 else "0.00%" for i, v in enumerate(p_df["diff_pct"])],
+                    textposition="top center",
+                    name="予測価格",
+                    line=dict(color="#0F52BA", width=3),
+                    marker=dict(size=8, color="#C9A961"),
+                ))
+                fig_path.update_layout(
+                    template="plotly_white",
+                    height=320,
+                    margin=dict(l=0, r=0, t=18, b=0),
+                    xaxis_title="予測時間軸",
+                    yaxis_title=f"価格 ({currency})",
+                )
+                st.plotly_chart(fig_path, use_container_width=True)
+                sim_cols = ["label", "price", "diff_pct", "損益(円)", "想定評価額(円)"]
+                sim_df = p_df[sim_cols].rename(columns={
+                    "label": "時間軸",
+                    "price": "予測価格",
+                    "diff_pct": "変化率(%)",
+                })
+                st.dataframe(sim_df, use_container_width=True, hide_index=True)
+                st.caption("※ 1分足ベースの短期予測。急変時は直近値動きを優先して追従します。")
+                st.markdown("**この予測の原因（根拠）**")
+                for reason in mh.get("reasons", []):
+                    st.markdown(f"- {reason}")
+            else:
+                st.info("時間軸予測グラフを生成できませんでした。市場時間中に再度お試しください。")
+
             # 1分足チャート
             st.markdown("#### 1分足チャート（直近）")
             with st.spinner("1分足チャートを生成中..."):
@@ -3532,6 +3600,68 @@ elif page == "FXビューア":
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         )
         st.plotly_chart(fig, use_container_width=True)
+
+        st.markdown("#### 時間軸 × 予測価格グラフ（1/3/5/15/30/60分）")
+        fx_mh = predict_multi_horizon_path(ticker, horizons=[1, 3, 5, 15, 30, 60])
+        if fx_mh and fx_mh.get("points"):
+            p_df = pd.DataFrame(fx_mh["points"])
+            st.markdown("##### シミュレーション設定（開始金額ベース）")
+            f1, f2, f3 = st.columns([2, 1.6, 1.4])
+            with f1:
+                fx_start_amount = st.number_input(
+                    "開始金額(円)",
+                    min_value=10_000,
+                    max_value=1_000_000_000,
+                    value=300_000,
+                    step=10_000,
+                    key=f"fx_start_amount_{ticker}",
+                )
+            with f2:
+                fx_side = st.radio("方向", ["買い", "売り"], horizontal=True, key=f"fx_side_{ticker}")
+            with f3:
+                if st.button("現在レートで開始", key=f"fx_set_entry_{ticker}", use_container_width=True):
+                    st.session_state[f"fx_entry_price_{ticker}"] = float(fx_mh["current_price"])
+            fx_entry = float(st.session_state.get(f"fx_entry_price_{ticker}", fx_mh["current_price"]))
+            st.caption(f"開始レート: {fx_entry:,.4f}（クリック時固定）")
+
+            # 簡易換算: 開始金額を開始レートで割って保有数量を算出
+            fx_qty = float(fx_start_amount) / max(fx_entry, 1e-9)
+            if fx_side == "買い":
+                p_df["損益(円)"] = (p_df["price"] - fx_entry) * fx_qty
+            else:
+                p_df["損益(円)"] = (fx_entry - p_df["price"]) * fx_qty
+            p_df["想定評価額(円)"] = float(fx_start_amount) + p_df["損益(円)"]
+
+            fig_fx_path = go.Figure()
+            fig_fx_path.add_trace(go.Scatter(
+                x=p_df["label"],
+                y=p_df["price"],
+                mode="lines+markers+text",
+                text=[f"{v:+.3f}%" if i > 0 else "0.000%" for i, v in enumerate(p_df["diff_pct"])],
+                textposition="top center",
+                name="予測価格",
+                line=dict(color="#0F52BA", width=3),
+                marker=dict(size=8, color="#C9A961"),
+            ))
+            fig_fx_path.update_layout(
+                template="plotly_white",
+                height=320,
+                margin=dict(l=0, r=0, t=18, b=0),
+                xaxis_title="予測時間軸",
+                yaxis_title=f"{selected_pair} レート",
+            )
+            st.plotly_chart(fig_fx_path, use_container_width=True)
+            fx_sim_df = p_df[["label", "price", "diff_pct", "損益(円)", "想定評価額(円)"]].rename(columns={
+                "label": "時間軸",
+                "price": "予測レート",
+                "diff_pct": "変化率(%)",
+            })
+            st.dataframe(fx_sim_df, use_container_width=True, hide_index=True)
+            st.markdown("**この予測の原因（根拠）**")
+            for reason in fx_mh.get("reasons", []):
+                st.markdown(f"- {reason}")
+        else:
+            st.info("時間軸予測グラフを生成できませんでした。市場時間中に再試行してください。")
 
     # ═══ タブ: 注目スケジュール ═══
     with tab_schedule:

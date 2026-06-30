@@ -7,7 +7,7 @@
 import yfinance as yf
 import pandas as pd
 import numpy as np
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Optional
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import StandardScaler
@@ -386,6 +386,98 @@ def predict_stock_1min(ticker: str) -> Optional[dict]:
             "move_3m_pct": round(move_3m, 3),
             "zscore": round(max(z_1m, z_3m), 2),
         },
+    }
+
+
+def predict_multi_horizon_path(
+    ticker: str,
+    horizons: Optional[list[int]] = None,
+) -> Optional[dict]:
+    """
+    1分足を使って、複数時間軸（例: 1/3/5/15/30/60分）の予測価格を返す。
+    FX・株式のどちらでも利用可能。
+    """
+    if horizons is None:
+        horizons = [1, 3, 5, 15, 30, 60]
+
+    try:
+        t = yf.Ticker(ticker)
+        df = t.history(period="5d", interval="1m")
+    except Exception:
+        return None
+
+    if df is None or df.empty or len(df) < 80:
+        return None
+
+    if df.index.tz is not None:
+        df.index = df.index.tz_convert("Asia/Tokyo").tz_localize(None)
+
+    close = df["Close"].dropna()
+    if close.empty:
+        return None
+
+    current = float(close.iloc[-1])
+    now_ts = datetime.now()
+
+    diff = close.diff().dropna()
+    if diff.empty:
+        return None
+
+    base_step = float(diff.tail(20).mean())
+    recent_step = float(diff.tail(5).mean())
+    last_step = float(diff.iloc[-1])
+    vol_1m = float(close.pct_change().dropna().tail(60).std()) if len(close) >= 61 else 0.0
+
+    # 急変時は直近1本を強く反映して追従
+    shock_ratio = abs(last_step) / max(abs(recent_step), 1e-9) if recent_step != 0 else abs(last_step) * 100
+    shock_weight = 0.45 if shock_ratio >= 2.2 else 0.15
+    step = base_step * 0.45 + recent_step * (0.55 - shock_weight) + last_step * shock_weight
+
+    points = [{
+        "minutes": 0,
+        "label": "現在",
+        "time": now_ts.strftime("%H:%M"),
+        "price": round(current, 4),
+        "diff_pct": 0.0,
+        "confidence": 100,
+    }]
+
+    for m in horizons:
+        decay = 0.98 ** max(0, m - 1)
+        pred = current + (step * m * decay)
+        diff_pct = (pred / current - 1) * 100 if current else 0.0
+
+        # 時間が遠いほど信頼度を落とす（ショック時はさらに低下）
+        conf = 86 - (m * 0.75) - (8 if shock_ratio >= 2.2 else 0)
+        conf = int(max(25, min(90, conf)))
+
+        points.append({
+            "minutes": m,
+            "label": f"{m}分",
+            "time": (now_ts + timedelta(minutes=m)).strftime("%H:%M"),
+            "price": round(float(pred), 4),
+            "diff_pct": round(float(diff_pct), 3),
+            "confidence": conf,
+        })
+
+    reasons = [
+        f"直近20本平均変化: {base_step:+.5f}",
+        f"直近5本平均変化: {recent_step:+.5f}",
+        f"直近1本変化: {last_step:+.5f}",
+    ]
+    if vol_1m > 0:
+        reasons.append(f"1分ボラティリティ: {vol_1m * 100:.3f}%")
+    if shock_ratio >= 2.2:
+        reasons.append("⚠️ 急変モード: 直近値動きを重視して追従予測")
+    else:
+        reasons.append("通常モード: モメンタム平均ベース予測")
+
+    return {
+        "ticker": ticker,
+        "current_price": round(current, 4),
+        "points": points,
+        "reasons": reasons,
+        "shock_ratio": round(float(shock_ratio), 2),
     }
 
 
