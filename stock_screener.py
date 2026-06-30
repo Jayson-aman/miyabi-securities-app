@@ -433,6 +433,15 @@ def predict_multi_horizon_path(
     shock_weight = 0.45 if shock_ratio >= 2.2 else 0.15
     step = base_step * 0.45 + recent_step * (0.55 - shock_weight) + last_step * shock_weight
 
+    def _label(minutes: int) -> str:
+        if minutes < 60:
+            return f"{minutes}分"
+        if minutes % 1440 == 0:
+            return f"{minutes // 1440}日"
+        if minutes % 60 == 0:
+            return f"{minutes // 60}時間"
+        return f"{minutes}分"
+
     points = [{
         "minutes": 0,
         "label": "現在",
@@ -443,7 +452,8 @@ def predict_multi_horizon_path(
     }]
 
     for m in horizons:
-        decay = 0.98 ** max(0, m - 1)
+        # 長時間になるほど1分足ノイズの影響を抑え、緩やかなドリフトに減衰
+        decay = 0.997 ** max(0, m - 1)
         pred = current + (step * m * decay)
         diff_pct = (pred / current - 1) * 100 if current else 0.0
 
@@ -453,7 +463,7 @@ def predict_multi_horizon_path(
 
         points.append({
             "minutes": m,
-            "label": f"{m}分",
+            "label": _label(m),
             "time": (now_ts + timedelta(minutes=m)).strftime("%H:%M"),
             "price": round(float(pred), 4),
             "diff_pct": round(float(diff_pct), 3),

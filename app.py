@@ -2712,7 +2712,19 @@ elif page == "株式ビューア":
                 )
 
             st.markdown("#### 時間軸 × 予測価格グラフ（1/3/5/15/30/60分）")
-            mh = predict_multi_horizon_path(ticker, horizons=[1, 3, 5, 15, 30, 60])
+            stock_horizon_mode = st.radio(
+                "予測レンジ",
+                ["60分", "6時間", "24時間", "3日"],
+                horizontal=True,
+                key=f"stock_horizon_mode_{ticker}",
+            )
+            stock_horizons = {
+                "60分": [1, 3, 5, 15, 30, 60],
+                "6時間": [1, 3, 5, 15, 30, 60, 120, 180, 240, 360],
+                "24時間": [1, 3, 5, 15, 30, 60, 120, 240, 360, 720, 1440],
+                "3日": [1, 3, 5, 15, 30, 60, 120, 240, 360, 720, 1440, 2880, 4320],
+            }[stock_horizon_mode]
+            mh = predict_multi_horizon_path(ticker, horizons=stock_horizons)
             if mh and mh.get("points"):
                 p_df = pd.DataFrame(mh["points"])
                 st.markdown("##### シミュレーション設定（開始金額ベース）")
@@ -2767,7 +2779,7 @@ elif page == "株式ビューア":
                     "diff_pct": "変化率(%)",
                 })
                 st.dataframe(sim_df, use_container_width=True, hide_index=True)
-                st.caption("※ 1分足ベースの短期予測。急変時は直近値動きを優先して追従します。")
+                st.caption("※ 1分足ベースの推定。3日先は不確実性が高いため、方向感の参考として利用してください。")
                 st.markdown("**この予測の原因（根拠）**")
                 for reason in mh.get("reasons", []):
                     st.markdown(f"- {reason}")
@@ -3602,7 +3614,19 @@ elif page == "FXビューア":
         st.plotly_chart(fig, use_container_width=True)
 
         st.markdown("#### 時間軸 × 予測価格グラフ（1/3/5/15/30/60分）")
-        fx_mh = predict_multi_horizon_path(ticker, horizons=[1, 3, 5, 15, 30, 60])
+        fx_horizon_mode = st.radio(
+            "予測レンジ",
+            ["60分", "6時間", "24時間", "3日"],
+            horizontal=True,
+            key=f"fx_horizon_mode_{ticker}",
+        )
+        fx_horizons = {
+            "60分": [1, 3, 5, 15, 30, 60],
+            "6時間": [1, 3, 5, 15, 30, 60, 120, 180, 240, 360],
+            "24時間": [1, 3, 5, 15, 30, 60, 120, 240, 360, 720, 1440],
+            "3日": [1, 3, 5, 15, 30, 60, 120, 240, 360, 720, 1440, 2880, 4320],
+        }[fx_horizon_mode]
+        fx_mh = predict_multi_horizon_path(ticker, horizons=fx_horizons)
         if fx_mh and fx_mh.get("points"):
             p_df = pd.DataFrame(fx_mh["points"])
             st.markdown("##### シミュレーション設定（開始金額ベース）")
@@ -3657,6 +3681,7 @@ elif page == "FXビューア":
                 "diff_pct": "変化率(%)",
             })
             st.dataframe(fx_sim_df, use_container_width=True, hide_index=True)
+            st.caption("※ 1分足ベースの推定。3日先は不確実性が高いため、方向感の参考として利用してください。")
             st.markdown("**この予測の原因（根拠）**")
             for reason in fx_mh.get("reasons", []):
                 st.markdown(f"- {reason}")
