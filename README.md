@@ -1,4 +1,4 @@
-# 📊 Zaibase.finance — Market Intelligence Dashboard
+# 📊 Zaibase.Economic Research — Market Intelligence Dashboard
 
 世界情勢のニュース・要人発言・軍事動向を AI で分析し、
 **FX・先物・株式・仮想通貨・新興テーマ銘柄** の価格方向を多角的に予測する

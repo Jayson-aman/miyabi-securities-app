@@ -5,7 +5,7 @@
   プレアラート 160% / アラート 130% / ロスカット 100%
   維持率 = 有効証拠金 ÷ 建玉必要証拠金 × 100
 
-※ 大和証券の公式サービスではありません。Zaibase.finance の仮想口座向け。
+※ 大和証券の公式サービスではありません。Zaibase.Economic Research の仮想口座向け。
 """
 
 from __future__ import annotations

@@ -12,6 +12,7 @@ from datetime import datetime
 from brand import (
     APP_NAME,
     APP_SHORT,
+    APP_BRAND_SUFFIX,
     APP_LOGO_LETTER,
     APP_TAGLINE,
     APP_SUBTITLE,
@@ -151,7 +152,7 @@ if _qp_panel in ("fx", "oil", "dollar", "all"):
     st.session_state["monitor_panel_filter"] = _qp_panel
 
 # ════════════════════════════════════════════════
-#  Zaibase.finance デザインシステム
+#  Zaibase.Economic Research デザインシステム
 #  - メインカラー: #0B3D91 / アクセント: #C9A961
 # ════════════════════════════════════════════════
 st.markdown("""
@@ -957,7 +958,7 @@ st.markdown(f"""
 
 
 # ════════════════════════════════════════════════
-#  Zaibase.finance ヘッダーバー
+#  Zaibase.Economic Research ヘッダーバー
 # ════════════════════════════════════════════════
 _now = datetime.now()
 _weekday = ["月", "火", "水", "木", "金", "土", "日"][_now.weekday()]
@@ -971,7 +972,7 @@ st.markdown(f"""
             <div class="miyabi-logo-en">{APP_SHORT.upper()}</div>
         </div>
         <div>
-            <div class="miyabi-title"><span class="miyabi-title-accent">{APP_SHORT}</span><span style="color:#C9A961;">.finance</span>　<span style="opacity:0.85;font-weight:400;font-size:0.95rem;">{APP_TAGLINE}</span></div>
+            <div class="miyabi-title"><span class="miyabi-title-accent">{APP_SHORT}</span><span style="color:#C9A961;">.{APP_BRAND_SUFFIX}</span>　<span style="opacity:0.85;font-weight:400;font-size:0.95rem;">{APP_TAGLINE}</span></div>
             <div class="miyabi-subtitle">{APP_SUBTITLE}</div>
         </div>
     </div>
@@ -1036,7 +1037,7 @@ render_legal_banner()
 with st.sidebar:
     st.markdown(f"""
     <div style="background:linear-gradient(135deg,#0B3D91 0%,#1A2D6E 100%);color:#fff;padding:14px 12px;border-radius:3px;margin-bottom:14px;text-align:center;border:1px solid #C9A961;box-shadow:0 2px 8px rgba(11,61,145,0.2);">
-        <div style="font-family:-apple-system,BlinkMacSystemFont,sans-serif;font-size:1.35rem;font-weight:700;letter-spacing:1px;background:linear-gradient(135deg,#C9A961 0%,#F0D580 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;line-height:1.2;">{APP_SHORT}<span style="font-size:0.85rem;">.finance</span></div>
+        <div style="font-family:-apple-system,BlinkMacSystemFont,sans-serif;font-size:1.1rem;font-weight:700;letter-spacing:0.5px;background:linear-gradient(135deg,#C9A961 0%,#F0D580 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;line-height:1.25;">{APP_SHORT}<span style="font-size:0.72rem;">.{APP_BRAND_SUFFIX}</span></div>
         <div style="font-size:0.65rem;letter-spacing:3px;color:#C9A961;margin-top:4px;">MENU</div>
         <div style="font-size:0.7rem;opacity:0.85;margin-top:2px;letter-spacing:1px;">{APP_MENU_LABEL}</div>
     </div>
@@ -5213,7 +5214,7 @@ elif page == "🔔 アラート":
 | 🔴 ロスカット水準 | **{th['loss_cut']:.0f}%** 未満 | 強警告 + ビープ3回 |
 
 **維持率** = 有効証拠金（預金＋含み損益）÷ 建玉必要証拠金 × 100  
-出典: [ダイワFX 利用・取引ルール](https://www.daiwa.jp/products/fx/fx_store/rules_fx.html) を参考（Zaibase.finance は非公式シミュレーション）
+出典: [ダイワFX 利用・取引ルール](https://www.daiwa.jp/products/fx/fx_store/rules_fx.html) を参考（{APP_NAME} は非公式シミュレーション）
 
 1. **🏦 FX/CFD ターミナル** で仮想注文を実行  
 2. 相場が逆行して維持率が下がると、画面上部で **アラームが鳴ります**  

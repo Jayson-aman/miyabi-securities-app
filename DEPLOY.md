@@ -237,7 +237,7 @@ enabled = true
 # salt / hash は generate_password_hash.py で生成
 
 [legal]
-operator_name = "南條 雅哉（Zaibase.finance）"
+operator_name = "南條 雅哉（Zaibase.Economic Research）"
 contact_email = "info@zaibase.group"
 # ↓ 所在地は Cloud Secrets にのみ記載（GitHub には載せない）
 address = "（ここに実住所 — 例: 大阪市…）"

@@ -9,7 +9,7 @@ from auth import generate_hash
 
 def main():
     print("=" * 60)
-    print(f"  📊 Zaibase.finance | パスワードハッシュ生成（画面表示版）")
+    print(f"  📊 Zaibase.Economic Research | パスワードハッシュ生成（画面表示版）")
     print("=" * 60)
     print()
     print("⚠ 注意: パスワードがそのまま画面に表示されます")

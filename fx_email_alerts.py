@@ -129,7 +129,7 @@ def _build_body(candidate: dict[str, Any], reasoning: dict[str, Any] | None) -> 
 
     lines.extend([
         "",
-        "【重要】本通知は Zaibase.finance の自動参考情報です。",
+        "【重要】本通知は Zaibase.Economic Research の自動参考情報です。",
         "投資助言・投資勧誘・取引執行ではありません。",
         "投資判断はご自身の責任で行ってください。",
         "急変時はスプレッド拡大・約定ずれ・指標発表に注意してください。",

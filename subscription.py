@@ -1,5 +1,5 @@
 """
-Zaibase.finance — 検討用サブスクリプション / ライセンス
+Zaibase.Economic Research — 検討用サブスクリプション / ライセンス
 
 実際の決済は Stripe Payment Link 等（Secrets 設定）。
 口座開設・実取引は行わない。

@@ -1,5 +1,5 @@
 """
-Zaibase.finance — 利用規約・プライバシー・免責事項
+Zaibase.Economic Research — 利用規約・プライバシー・免責事項
 
 法的助言ではありません。必要に応じて弁護士等の確認を推奨します。
 """
@@ -37,7 +37,7 @@ def _truthy(val) -> bool:
 
 
 def operator_name() -> str:
-    return str(_legal_cfg().get("operator_name") or "南條 雅哉（Zaibase.finance）")
+    return str(_legal_cfg().get("operator_name") or "南條 雅哉（Zaibase.Economic Research）")
 
 
 def contact_email() -> str:
