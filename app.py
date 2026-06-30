@@ -1065,30 +1065,37 @@ with st.sidebar:
     render_alarm_settings_sidebar()
     st.divider()
 
+    page_options = [
+        "📊 ダッシュボード",
+        "🏛 取扱検討株式・市場情報",
+        "🏦 FX/CFD ターミナル",
+        "🖥 3画面モニター",
+        "💴 円相場 総合分析",
+        "⏰ 転換点・反転予測",
+        "📅 経済イベント・カレンダー",
+        "🚨 要人介入・警戒水準表",
+        "💹 FX レバレッジ シミュレーター",
+        "📊 株価指数先物 総合予測",
+        "📐 チャートパターン検出（買い/売り）",
+        "💎 ファンダメンタル売買判断",
+        "原油先物予測",
+        "株式ビューア",
+        "FXビューア",
+        "🚀 新興・新発掘銘柄",
+        "₿ 仮想通貨",
+        "🔔 アラート",
+        "📈 バックテスト",
+        "📜 利用規約・免責",
+    ]
+
+    # ダッシュボード内ボタンからの遷移要求を安全に反映（widget生成前のみ main_page を更新）
+    _service_nav_target = st.session_state.pop("_service_nav_target", None)
+    if _service_nav_target in page_options:
+        st.session_state["main_page"] = _service_nav_target
+
     page = st.radio(
         " ",
-        [
-            "📊 ダッシュボード",
-            "🏛 取扱検討株式・市場情報",
-            "🏦 FX/CFD ターミナル",
-            "🖥 3画面モニター",
-            "💴 円相場 総合分析",
-            "⏰ 転換点・反転予測",
-            "📅 経済イベント・カレンダー",
-            "🚨 要人介入・警戒水準表",
-            "💹 FX レバレッジ シミュレーター",
-            "📊 株価指数先物 総合予測",
-            "📐 チャートパターン検出（買い/売り）",
-            "💎 ファンダメンタル売買判断",
-            "原油先物予測",
-            "株式ビューア",
-            "FXビューア",
-            "🚀 新興・新発掘銘柄",
-            "₿ 仮想通貨",
-            "🔔 アラート",
-            "📈 バックテスト",
-            "📜 利用規約・免責",
-        ],
+        page_options,
         label_visibility="collapsed",
         key="main_page",
     )
@@ -3807,7 +3814,7 @@ if page == "📊 ダッシュボード":
                 )
             with c_btn:
                 if st.button("開く", key=f"svc_open_{i}", use_container_width=True):
-                    st.session_state["main_page"] = target_page
+                    st.session_state["_service_nav_target"] = target_page
                     st.rerun()
 
         st.markdown("</div>", unsafe_allow_html=True)
