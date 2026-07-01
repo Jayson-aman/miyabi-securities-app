@@ -1519,6 +1519,17 @@ if page == "📊 株価指数先物 総合予測":
                     </div>
                     """, unsafe_allow_html=True)
 
+            sr = r["support_resistance"]
+            one_month_targets = [s["target_1m"] for s in r["scenarios"]]
+            idx_range_low = min(sr["support_strong"], min(one_month_targets))
+            idx_range_high = max(sr["resistance_strong"], max(one_month_targets))
+            idx_base = max(float(r["current_price"]), 1e-9)
+            st.markdown("##### 📦 統合予測レンジ（1ヶ月目安）")
+            st.info(
+                f"現在 {r['current_price']:,.2f} ｜ 予測レンジ {idx_range_low:,.2f} 〜 {idx_range_high:,.2f} "
+                f"（{(idx_range_low / idx_base - 1) * 100:+.2f}% 〜 {(idx_range_high / idx_base - 1) * 100:+.2f}%）"
+            )
+
             # シナリオ
             st.markdown("##### 🌟 3つのシナリオと確率")
             sc = st.columns(3)
@@ -1698,6 +1709,22 @@ if page == "原油先物予測":
                 <div style="font-size: 1.5rem; color: #fff;">信頼度: {prediction['confidence']:.1f}%</div>
             </div>
             """, unsafe_allow_html=True)
+
+            oil_current = float(df_with_indicators["終値"].iloc[-1]) if not df_with_indicators.empty else 0.0
+            oil_combined = float(prediction.get("combined_score", 0.0))
+            oil_vol_pct = (
+                float(df_with_indicators["終値"].pct_change().dropna().tail(20).std() * 100)
+                if len(df_with_indicators) >= 21 else 0.8
+            )
+            oil_band_pct = max(0.8, min(8.0, abs(oil_combined) * 3.5 + oil_vol_pct * 0.8))
+            oil_shift_pct = oil_combined * 1.5
+            oil_low = oil_current * (1 + (oil_shift_pct - oil_band_pct) / 100)
+            oil_high = oil_current * (1 + (oil_shift_pct + oil_band_pct) / 100)
+            oil_base = max(oil_current, 1e-9)
+            st.markdown(
+                f"##### 予測レンジ（当面）: {oil_low:,.2f} 〜 {oil_high:,.2f} "
+                f"（{(oil_low / oil_base - 1) * 100:+.2f}% 〜 {(oil_high / oil_base - 1) * 100:+.2f}%）"
+            )
 
             st.write("")
 
@@ -2727,6 +2754,35 @@ elif page == "株式ビューア":
             mh = predict_multi_horizon_path(ticker, horizons=stock_horizons)
             if mh and mh.get("points"):
                 p_df = pd.DataFrame(mh["points"])
+                stock_current_price = float(mh["current_price"])
+
+                monitor_pct = st.select_slider(
+                    "到達判定幅（%）",
+                    options=[x for x in range(2, 22, 2)],  # 2,4,...,20%
+                    value=2,
+                    key=f"stock_reach_pct_{ticker}",
+                )
+                up_trigger = stock_current_price * (1 + monitor_pct / 100)
+                down_trigger = stock_current_price * (1 - monitor_pct / 100)
+                range_low = float(p_df["price"].min())
+                range_high = float(p_df["price"].max())
+                up_hits = p_df[p_df["price"] >= up_trigger]
+                down_hits = p_df[p_df["price"] <= down_trigger]
+                first_up = str(up_hits.iloc[0]["label"]) if not up_hits.empty else None
+                first_down = str(down_hits.iloc[0]["label"]) if not down_hits.empty else None
+
+                st.markdown(f"##### ±{monitor_pct}% 先読みレンジ")
+                st.info(
+                    f"現在 {currency}{stock_current_price:,.2f} / 監視レンジ {currency}{down_trigger:,.2f} 〜 {currency}{up_trigger:,.2f} / "
+                    f"今回の予測レンジ {currency}{range_low:,.2f} 〜 {currency}{range_high:,.2f}"
+                )
+                if first_up or first_down:
+                    up_line = f"上方向: {first_up}で +{monitor_pct}%到達見込み" if first_up else "上方向: 未到達"
+                    down_line = f"下方向: {first_down}で -{monitor_pct}%到達見込み" if first_down else "下方向: 未到達"
+                    st.warning(f"⚠️ {up_line} / {down_line}")
+                else:
+                    st.success(f"✅ この予測レンジ内では ±{monitor_pct}%は未到達見込みです。")
+
                 st.markdown("##### シミュレーション設定（開始金額ベース）")
                 s1, s2, s3 = st.columns([2, 1.6, 1.4])
                 with s1:
@@ -2771,8 +2827,26 @@ elif page == "株式ビューア":
                     xaxis_title="予測時間軸",
                     yaxis_title=f"価格 ({currency})",
                 )
+                fig_path.add_hline(
+                    y=up_trigger,
+                    line_dash="dot",
+                    line_color="#D32030",
+                    annotation_text=f"+{monitor_pct}%ライン",
+                    annotation_position="top right",
+                )
+                fig_path.add_hline(
+                    y=down_trigger,
+                    line_dash="dot",
+                    line_color="#1565C0",
+                    annotation_text=f"-{monitor_pct}%ライン",
+                    annotation_position="bottom right",
+                )
                 st.plotly_chart(fig_path, use_container_width=True)
-                sim_cols = ["label", "price", "diff_pct", "損益(円)", "想定評価額(円)"]
+                reach_col = f"{monitor_pct}%到達"
+                p_df[reach_col] = p_df["price"].apply(
+                    lambda px: "到達" if abs((float(px) / max(stock_current_price, 1e-9) - 1) * 100) >= monitor_pct else "未達"
+                )
+                sim_cols = ["label", "price", "diff_pct", reach_col, "損益(円)", "想定評価額(円)"]
                 sim_df = p_df[sim_cols].rename(columns={
                     "label": "時間軸",
                     "price": "予測価格",
@@ -3629,6 +3703,37 @@ elif page == "FXビューア":
         fx_mh = predict_multi_horizon_path(ticker, horizons=fx_horizons)
         if fx_mh and fx_mh.get("points"):
             p_df = pd.DataFrame(fx_mh["points"])
+            fx_current_price = float(fx_mh["current_price"])
+
+            # JPYクロス向け: 任意幅（小刻み）到達の先読みレンジ表示
+            is_jpy_pair = ticker.endswith("JPY=X")
+            if is_jpy_pair:
+                monitor_width = st.select_slider(
+                    "到達判定幅（円）",
+                    options=[round(x * 0.1, 1) for x in range(3, 21)],  # 0.3〜2.0円
+                    value=2.0,
+                    key=f"fx_reach_width_{ticker}",
+                )
+                up_trigger = fx_current_price + monitor_width
+                down_trigger = fx_current_price - monitor_width
+                range_low = float(p_df["price"].min())
+                range_high = float(p_df["price"].max())
+                up_hits = p_df[p_df["price"] >= up_trigger]
+                down_hits = p_df[p_df["price"] <= down_trigger]
+                first_up = str(up_hits.iloc[0]["label"]) if not up_hits.empty else None
+                first_down = str(down_hits.iloc[0]["label"]) if not down_hits.empty else None
+
+                st.markdown(f"##### ±{monitor_width:.1f}円 先読みレンジ（JPYペア）")
+                st.info(
+                    f"現在 {fx_current_price:,.3f} / 監視レンジ {down_trigger:,.3f} 〜 {up_trigger:,.3f} / "
+                    f"今回の予測レンジ {range_low:,.3f} 〜 {range_high:,.3f}"
+                )
+                if first_up or first_down:
+                    up_line = f"上方向: {first_up}で +{monitor_width:.1f}円到達見込み" if first_up else "上方向: 未到達"
+                    down_line = f"下方向: {first_down}で -{monitor_width:.1f}円到達見込み" if first_down else "下方向: 未到達"
+                    st.warning(f"⚠️ {up_line} / {down_line}")
+                else:
+                    st.success(f"✅ この予測レンジ内では ±{monitor_width:.1f}円は未到達見込みです。")
             st.markdown("##### シミュレーション設定（開始金額ベース）")
             f1, f2, f3 = st.columns([2, 1.6, 1.4])
             with f1:
@@ -3674,8 +3779,32 @@ elif page == "FXビューア":
                 xaxis_title="予測時間軸",
                 yaxis_title=f"{selected_pair} レート",
             )
+            if is_jpy_pair:
+                fig_fx_path.add_hline(
+                    y=up_trigger,
+                    line_dash="dot",
+                    line_color="#D32030",
+                    annotation_text=f"+{monitor_width:.1f}円ライン",
+                    annotation_position="top right",
+                )
+                fig_fx_path.add_hline(
+                    y=down_trigger,
+                    line_dash="dot",
+                    line_color="#1565C0",
+                    annotation_text=f"-{monitor_width:.1f}円ライン",
+                    annotation_position="bottom right",
+                )
             st.plotly_chart(fig_fx_path, use_container_width=True)
-            fx_sim_df = p_df[["label", "price", "diff_pct", "損益(円)", "想定評価額(円)"]].rename(columns={
+            if is_jpy_pair:
+                reach_col = f"{monitor_width:.1f}円到達"
+                p_df[reach_col] = p_df["price"].apply(
+                    lambda px: "到達" if abs(float(px) - fx_current_price) >= monitor_width else "未達"
+                )
+                display_cols = ["label", "price", "diff_pct", reach_col, "損益(円)", "想定評価額(円)"]
+            else:
+                display_cols = ["label", "price", "diff_pct", "損益(円)", "想定評価額(円)"]
+
+            fx_sim_df = p_df[display_cols].rename(columns={
                 "label": "時間軸",
                 "price": "予測レート",
                 "diff_pct": "変化率(%)",
@@ -3801,10 +3930,17 @@ if page == "📊 ダッシュボード":
                     for r in cat_reasonings:
                         rsn = r["reasoning"]
                         shock = rsn.get("shock", {})
+                        cur = float(r["current_price"])
+                        diff_60 = float(r["diff_60min_pct"])
+                        vol_pct = float(rsn.get("vol_pct", 0.1))
+                        pred_center = cur * (1 + diff_60 / 100)
+                        pred_band = cur * (max(vol_pct, 0.05) / 100)
+                        range_60 = f"{pred_center - pred_band:,.3f}〜{pred_center + pred_band:,.3f}"
                         summary_rows.append({
                             "銘柄": r["label"],
                             "60分先方向": r["direction_60min"],
                             "60分予想変化%": f"{r['diff_60min_pct']:+.3f}%",
+                            "60分予測レンジ": range_60,
                             "突発": "⚠️有" if shock.get("is_shock") else "—",
                             "RSI": rsn["rsi"],
                             "EMA勾配%": f"{rsn['ema_slope_pct']:+.3f}%",
@@ -4430,6 +4566,29 @@ elif page == "⏰ 転換点・反転予測":
     m3.metric("BB位置", f"{trend['bb_position']:+.2f}")
     m4.metric("ATR", f"{trend['atr']:.3f}")
     m5.metric("疲労度", f"{fatigue}%")
+
+    rev_center = float(trend["current_rate"])
+    rev_atr = max(float(trend.get("atr", 0.3)), 0.15)
+    keep_days_raw = keep.get("keep_estimate_days", 1)
+    try:
+        keep_days = float(keep_days_raw)
+    except (TypeError, ValueError):
+        keep_days = 1.0
+    horizon_scale = min(3.0, max(1.0, keep_days / 2.0))
+    rev_band = rev_atr * horizon_scale
+    if trend["trend_dir"] == "weak":
+        rev_low = rev_center - rev_band * 0.8
+        rev_high = rev_center + rev_band * 1.2
+    elif trend["trend_dir"] == "strong":
+        rev_low = rev_center - rev_band * 1.2
+        rev_high = rev_center + rev_band * 0.8
+    else:
+        rev_low = rev_center - rev_band
+        rev_high = rev_center + rev_band
+    st.info(
+        f"予測レンジ（キープ期間目安）: {rev_low:.3f} 〜 {rev_high:.3f} "
+        f"（中心 {rev_center:.3f} / ATR基準 ±{rev_band:.3f}）"
+    )
 
     st.divider()
 
