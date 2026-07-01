@@ -491,6 +491,220 @@ def predict_multi_horizon_path(
     }
 
 
+def _extract_plan_notes(ticker_obj: yf.Ticker, base_ticker: str) -> tuple[list[str], list[str]]:
+    """
+    企業の公開情報（概要・ニュース）から中長期の計画テーマを抽出する。
+    """
+    notes: list[str] = []
+    try:
+        info = ticker_obj.info or {}
+    except Exception:
+        info = {}
+
+    summary = str(info.get("longBusinessSummary") or "")
+    revenue_growth = info.get("revenueGrowth")
+    earnings_growth = info.get("earningsGrowth")
+    capex = info.get("capitalExpenditure")
+
+    if isinstance(revenue_growth, (int, float)):
+        notes.append(f"売上成長率（YoY）: {revenue_growth * 100:+.1f}%")
+    if isinstance(earnings_growth, (int, float)):
+        notes.append(f"利益成長率（YoY）: {earnings_growth * 100:+.1f}%")
+    if isinstance(capex, (int, float)):
+        notes.append(f"設備投資（直近報告）: {capex:,.0f}")
+
+    keyword_map = {
+        "AI・半導体投資": ["ai", "artificial intelligence", "gpu", "semiconductor", "chip", "データセンター", "半導体"],
+        "クラウド/ソフト拡張": ["cloud", "saas", "software", "platform", "subscription"],
+        "EV・電池戦略": ["ev", "battery", "electric vehicle", "自動運転", "蓄電池"],
+        "工場増設・能力増強": ["capacity", "plant", "facility", "fab", "expansion", "増産", "工場"],
+        "M&A・提携": ["acquisition", "merger", "partnership", "strategic alliance", "提携", "買収"],
+        "株主還元": ["buyback", "dividend", "shareholder return", "自社株買い", "増配"],
+    }
+
+    text_pool = [summary.lower()]
+    participant_tickers: set[str] = set()
+    try:
+        news_items = getattr(ticker_obj, "news", []) or []
+    except Exception:
+        news_items = []
+
+    for item in news_items[:8]:
+        title = str(item.get("title") or "")
+        if title:
+            text_pool.append(title.lower())
+        related = item.get("relatedTickers") or []
+        if isinstance(related, list):
+            for tk in related:
+                tk_s = str(tk).strip().upper()
+                if tk_s and tk_s != str(base_ticker).strip().upper():
+                    participant_tickers.add(tk_s)
+
+    merged = " ".join(text_pool)
+    for theme, kws in keyword_map.items():
+        if any(kw in merged for kw in kws):
+            notes.append(f"計画テーマ候補: {theme}")
+
+    for item in news_items[:5]:
+        title = str(item.get("title") or "").strip()
+        if title:
+            notes.append(f"直近開示/報道: {title}")
+
+    if participant_tickers:
+        participant_names = []
+        for tk in sorted(participant_tickers):
+            participant_names.append(SCAN_TARGETS.get(tk, tk))
+        notes.append(f"計画参加候補企業: {', '.join(participant_names[:8])}")
+
+    if not notes:
+        notes.append("公開情報上、明確な中長期計画テーマは抽出できませんでした。")
+    participants = sorted(participant_tickers)[:8]
+    return notes[:8], participants
+
+
+def predict_stock_midlong_range(
+    ticker: str,
+    week_horizons: Optional[list[int]] = None,
+    year_horizons: Optional[list[int]] = None,
+) -> Optional[dict]:
+    """
+    株式の中長期予測レンジ（奇数週・数年先）を返す。
+    予測は日次リターンのドリフト＋ボラティリティ帯による統計的レンジ。
+    """
+    if week_horizons is None:
+        week_horizons = [1, 3, 5]
+    if year_horizons is None:
+        year_horizons = [1, 3]
+
+    week_horizons = sorted({int(w) for w in week_horizons if int(w) > 0 and int(w) % 2 == 1})
+    year_horizons = sorted({int(y) for y in year_horizons if int(y) > 0 and int(y) % 2 == 1})
+    if not week_horizons and not year_horizons:
+        return None
+
+    try:
+        ticker_obj = yf.Ticker(ticker)
+        df = ticker_obj.history(period="10y", interval="1d")
+    except Exception:
+        return None
+
+    if df is None or df.empty or len(df) < 120:
+        return None
+
+    close = df["Close"].dropna()
+    if close.empty:
+        return None
+
+    current = float(close.iloc[-1])
+    returns = close.pct_change().dropna()
+    if returns.empty:
+        return None
+
+    mu_d = float(returns.tail(252).mean()) if len(returns) >= 252 else float(returns.mean())
+    sigma_d = float(returns.tail(252).std()) if len(returns) >= 252 else float(returns.std())
+    sigma_d = max(sigma_d, 0.0005)
+
+    # 直近モメンタムをドリフトへ薄く反映
+    mom_60 = float(close.iloc[-1] / close.iloc[-61] - 1) if len(close) >= 61 else 0.0
+    mu_adj = mu_d + (mom_60 / 252.0) * 0.25
+
+    # 成長率（企業情報）で微調整
+    try:
+        info = ticker_obj.info or {}
+    except Exception:
+        info = {}
+    rev_growth = info.get("revenueGrowth")
+    earn_growth = info.get("earningsGrowth")
+    growth_adj = 0.0
+    if isinstance(rev_growth, (int, float)):
+        growth_adj += max(-0.2, min(0.3, float(rev_growth))) * 0.25
+    if isinstance(earn_growth, (int, float)):
+        growth_adj += max(-0.3, min(0.4, float(earn_growth))) * 0.25
+    mu_adj += growth_adj / 252.0
+
+    points = []
+
+    def _append_point(days: int, label: str, z: float) -> None:
+        center = current * np.exp((mu_adj - 0.5 * sigma_d * sigma_d) * days)
+        band = max(0.02, z * sigma_d * np.sqrt(days))
+        low = center * np.exp(-band)
+        high = center * np.exp(band)
+        diff_center = (center / current - 1) * 100
+        points.append({
+            "label": label,
+            "days": days,
+            "center": round(float(center), 2),
+            "low": round(float(low), 2),
+            "high": round(float(high), 2),
+            "center_diff_pct": round(float(diff_center), 2),
+            "band_pct": round(float((high / max(center, 1e-9) - 1) * 100), 2),
+        })
+
+    for w in week_horizons:
+        days = max(3, w * 5)
+        _append_point(days, f"{w}週間", z=1.1)
+    for y in year_horizons:
+        days = max(50, y * 252)
+        _append_point(days, f"{y}年", z=1.5 + min(0.6, y * 0.1))
+
+    plan_notes, participant_tickers = _extract_plan_notes(ticker_obj, ticker)
+
+    # 参加候補企業が上場している場合、その値動きをレンジへ加味
+    participant_moms = []
+    participant_vols = []
+    participants_used = []
+    for pt in participant_tickers[:5]:
+        try:
+            pdf = yf.Ticker(pt).history(period="1y", interval="1d")
+            if pdf is None or pdf.empty or len(pdf) < 61:
+                continue
+            pclose = pdf["Close"].dropna()
+            if len(pclose) < 61:
+                continue
+            prem = pclose.pct_change().dropna()
+            if prem.empty:
+                continue
+            pmom_60 = float(pclose.iloc[-1] / pclose.iloc[-61] - 1)
+            pvol_d = float(prem.tail(252).std()) if len(prem) >= 252 else float(prem.std())
+            participant_moms.append(pmom_60)
+            participant_vols.append(max(pvol_d, 0.0005))
+            participants_used.append(pt)
+        except Exception:
+            continue
+
+    if participant_moms:
+        p_mom_avg = float(np.mean(participant_moms))
+        # 参加企業の直近60営業日モメンタムを中心ドリフトへ反映（控えめ）
+        mu_adj += (p_mom_avg / 252.0) * 0.18
+        plan_notes.append(f"参加企業モメンタム反映: {p_mom_avg * 100:+.2f}%（60営業日平均）")
+    else:
+        p_mom_avg = 0.0
+
+    if participant_vols:
+        p_vol_avg = float(np.mean(participant_vols))
+        # 参加企業のボラをレンジ幅へ反映（過度に拡大しないよう弱めブレンド）
+        sigma_d = sigma_d * 0.85 + p_vol_avg * 0.15
+    else:
+        p_vol_avg = 0.0
+    reasons = [
+        f"日次平均リターン(年換算): {mu_d * 252 * 100:+.2f}%",
+        f"日次ボラ(年換算): {sigma_d * np.sqrt(252) * 100:.2f}%",
+        f"直近60営業日モメンタム: {mom_60 * 100:+.2f}%",
+    ]
+    if participants_used:
+        reasons.append(f"参加企業連動加味: {len(participants_used)}社（{', '.join(participants_used[:3])}）")
+    if p_vol_avg > 0:
+        reasons.append(f"参加企業ボラ加味(年換算): {p_vol_avg * np.sqrt(252) * 100:.2f}%")
+
+    return {
+        "ticker": ticker,
+        "current_price": round(current, 2),
+        "points": points,
+        "plan_notes": plan_notes,
+        "reasons": reasons,
+        "participants_used": participants_used,
+    }
+
+
 def get_top_movers(results: List[dict], n: int = 5) -> dict:
     """スキャン結果から各カテゴリのトップ銘柄を抽出"""
     leaders = [r for r in results if r["category"] == "リーダー"]

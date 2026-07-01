@@ -65,6 +65,46 @@ US_STOCKS = {
     "Berkshire Hathaway (BRK-B)": "BRK-B",
 }
 
+# ─── 海外個別株（米国以外） ───
+OVERSEAS_STOCKS = {
+    # アジア
+    "TSMC (台湾, 2330)": "2330.TW",
+    "鴻海 / Foxconn (台湾, 2317)": "2317.TW",
+    "Samsung Electronics (韓国, 005930)": "005930.KS",
+    "SK Hynix (韓国, 000660)": "000660.KS",
+    "Tencent (香港, 0700)": "0700.HK",
+    "Alibaba HK (香港, 9988)": "9988.HK",
+    # 欧州
+    "ASML (オランダ)": "ASML.AS",
+    "SAP (ドイツ)": "SAP.DE",
+    "LVMH (フランス)": "MC.PA",
+    "Novo Nordisk (デンマーク)": "NOVO-B.CO",
+    "Nestle (スイス)": "NESN.SW",
+    "Shell (英国)": "SHEL.L",
+    # カナダ・豪州
+    "Shopify (カナダ)": "SHOP.TO",
+    "Royal Bank of Canada": "RY.TO",
+    "BHP Group (豪州)": "BHP.AX",
+    "Commonwealth Bank (豪州)": "CBA.AX",
+}
+
+# ─── 債券・金利（国債ETF/主要金利） ───
+BOND_SYMBOLS = {
+    # 米国債ETF
+    "iShares 20+ Year Treasury (TLT)": "TLT",
+    "iShares 7-10 Year Treasury (IEF)": "IEF",
+    "iShares 1-3 Year Treasury (SHY)": "SHY",
+    "Vanguard Total Bond Market (BND)": "BND",
+    "iShares Core US Aggregate Bond (AGG)": "AGG",
+    "iShares iBoxx IG Corp Bond (LQD)": "LQD",
+    "iShares iBoxx HY Corp Bond (HYG)": "HYG",
+    "iShares JP Morgan EM Bond (EMB)": "EMB",
+    # 主要金利指数（参考）
+    "米10年国債利回り (^TNX)": "^TNX",
+    "米30年国債利回り (^TYX)": "^TYX",
+    "米5年国債利回り (^FVX)": "^FVX",
+}
+
 # ─── 仮想通貨（暗号資産） ───
 CRYPTO_SYMBOLS = {
     "Bitcoin (BTC/USD)": "BTC-USD",

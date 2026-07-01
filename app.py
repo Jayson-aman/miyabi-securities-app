@@ -31,6 +31,8 @@ from data_fetcher import (
     STOCK_INDICES,
     JP_STOCKS,
     US_STOCKS,
+    OVERSEAS_STOCKS,
+    BOND_SYMBOLS,
     CRYPTO_SYMBOLS,
     COMMODITIES,
     INTERVAL_OPTIONS,
@@ -50,6 +52,7 @@ from stock_screener import (
     get_top_movers,
     predict_stock_1min,
     predict_multi_horizon_path,
+    predict_stock_midlong_range,
 )
 from emerging_stocks import (
     EMERGING_STOCKS,
@@ -1017,6 +1020,121 @@ def _get_ticker_data():
     return out
 
 
+def _currency_for_ticker(ticker_code: str) -> str:
+    if ticker_code in {"^TNX", "^TYX", "^FVX"}:
+        return ""
+    if ticker_code.endswith(".T") or ticker_code in ["^N225", "^TPX"]:
+        return "¥"
+    suffix_map = {
+        ".HK": "HK$",
+        ".KS": "₩",
+        ".TW": "NT$",
+        ".L": "£",
+        ".AS": "€",
+        ".DE": "€",
+        ".PA": "€",
+        ".SW": "CHF",
+        ".TO": "C$",
+        ".AX": "A$",
+    }
+    for suf, ccy in suffix_map.items():
+        if ticker_code.endswith(suf):
+            return ccy
+    return "$"
+
+
+def _render_midlong_range_block(
+    ticker_code: str,
+    currency: str,
+    key_prefix: str,
+    title: str,
+    note_title: str = "計画内容メモ（公開情報ベース）",
+):
+    st.markdown(f"#### {title}")
+    wk_col, yr_col = st.columns(2)
+    with wk_col:
+        week_choices = st.multiselect(
+            "奇数週（複数選択）",
+            options=[1, 3, 5, 7, 9, 11],
+            default=[1, 3, 5],
+            key=f"{key_prefix}_odd_weeks",
+        )
+    with yr_col:
+        year_choices = st.multiselect(
+            "奇数年（複数選択）",
+            options=[1, 3, 5],
+            default=[1, 3],
+            key=f"{key_prefix}_odd_years",
+        )
+
+    long_pred = predict_stock_midlong_range(
+        ticker_code,
+        week_horizons=week_choices or [1, 3, 5],
+        year_horizons=year_choices or [1, 3],
+    )
+    if not long_pred or not long_pred.get("points"):
+        st.info("中長期レンジを生成できませんでした。時間を空けて再試行してください。")
+        return
+
+    lp_df = pd.DataFrame(long_pred["points"]).sort_values("days")
+    band_fig = go.Figure()
+    band_fig.add_trace(go.Scatter(
+        x=lp_df["label"],
+        y=lp_df["high"],
+        mode="lines",
+        line=dict(color="rgba(211, 32, 48, 0.35)", width=1),
+        name="上限",
+    ))
+    band_fig.add_trace(go.Scatter(
+        x=lp_df["label"],
+        y=lp_df["low"],
+        mode="lines",
+        fill="tonexty",
+        fillcolor="rgba(21, 101, 192, 0.15)",
+        line=dict(color="rgba(21, 101, 192, 0.35)", width=1),
+        name="下限",
+    ))
+    band_fig.add_trace(go.Scatter(
+        x=lp_df["label"],
+        y=lp_df["center"],
+        mode="lines+markers+text",
+        text=[f"{v:+.1f}%" for v in lp_df["center_diff_pct"]],
+        textposition="top center",
+        line=dict(color="#0F52BA", width=3),
+        marker=dict(size=8, color="#C9A961"),
+        name="中心予測",
+    ))
+    band_fig.update_layout(
+        template="plotly_white",
+        height=320,
+        margin=dict(l=0, r=0, t=10, b=0),
+        xaxis_title="予測期間",
+        yaxis_title=f"価格 ({currency})" if currency else "価格",
+    )
+    st.plotly_chart(band_fig, use_container_width=True)
+
+    long_table = lp_df[["label", "center", "low", "high", "center_diff_pct", "band_pct"]].rename(columns={
+        "label": "期間",
+        "center": "中心予測価格",
+        "low": "下限レンジ",
+        "high": "上限レンジ",
+        "center_diff_pct": "中心変化率(%)",
+        "band_pct": "片側レンジ幅(%)",
+    })
+    st.dataframe(long_table, use_container_width=True, hide_index=True)
+
+    st.markdown(f"**{note_title}**")
+    for note in long_pred.get("plan_notes", []):
+        st.markdown(f"- {note}")
+    if long_pred.get("participants_used"):
+        st.caption(f"連動加味した上場参加候補: {', '.join(long_pred['participants_used'])}")
+    if long_pred.get("reasons"):
+        with st.expander("中長期レンジ算出の根拠を見る"):
+            for r in long_pred.get("reasons", []):
+                st.markdown(f"- {r}")
+    st.caption("※ メモは企業概要・成長指標・公開ニュース見出しからの自動抽出です。")
+
+
 _ticker_html = '<div class="market-ticker">'
 for name, info in _get_ticker_data():
     if info:
@@ -1156,14 +1274,18 @@ with st.sidebar:
     elif page == "株式ビューア":
         stock_category = st.selectbox(
             "カテゴリ",
-            ["株価指数", "日本個別株", "米国個別株"],
+            ["株価指数", "日本個別株", "米国個別株", "海外個別株", "債券"],
         )
         if stock_category == "株価指数":
             stock_dict = STOCK_INDICES
         elif stock_category == "日本個別株":
             stock_dict = JP_STOCKS
-        else:
+        elif stock_category == "米国個別株":
             stock_dict = US_STOCKS
+        elif stock_category == "債券":
+            stock_dict = BOND_SYMBOLS
+        else:
+            stock_dict = OVERSEAS_STOCKS
 
         selected_stock = st.selectbox(
             "銘柄",
@@ -1529,6 +1651,15 @@ if page == "📊 株価指数先物 総合予測":
                 f"現在 {r['current_price']:,.2f} ｜ 予測レンジ {idx_range_low:,.2f} 〜 {idx_range_high:,.2f} "
                 f"（{(idx_range_low / idx_base - 1) * 100:+.2f}% 〜 {(idx_range_high / idx_base - 1) * 100:+.2f}%）"
             )
+            idx_yf_ticker = INDEX_FUTURES.get(sel_label, {}).get("yf_symbol", sel_label)
+            idx_currency = "¥" if "🇯🇵" in r["country"] else "$"
+            _render_midlong_range_block(
+                ticker_code=idx_yf_ticker,
+                currency=idx_currency,
+                key_prefix=f"index_midlong_{sel_label}",
+                title="奇数週・数年先の予測レンジ（計画/テーマメモ付き）",
+                note_title="指数テーマメモ（公開情報ベース）",
+            )
 
             # シナリオ
             st.markdown("##### 🌟 3つのシナリオと確率")
@@ -1724,6 +1855,13 @@ if page == "原油先物予測":
             st.markdown(
                 f"##### 予測レンジ（当面）: {oil_low:,.2f} 〜 {oil_high:,.2f} "
                 f"（{(oil_low / oil_base - 1) * 100:+.2f}% 〜 {(oil_high / oil_base - 1) * 100:+.2f}%）"
+            )
+            _render_midlong_range_block(
+                ticker_code=ticker,
+                currency="$",
+                key_prefix=f"oil_midlong_{ticker}",
+                title="奇数週・数年先の予測レンジ（計画/テーマメモ付き）",
+                note_title="市場テーマメモ（公開情報ベース）",
             )
 
             st.write("")
@@ -2549,8 +2687,8 @@ elif page == "株式ビューア":
     latest = get_latest_price(ticker)
     if latest:
         c1, c2, c3 = st.columns(3)
-        is_jpy = ticker.endswith(".T") or ticker in ["^N225", "^TPX"]
-        currency = "¥" if is_jpy else "$"
+        currency = _currency_for_ticker(ticker)
+        is_jpy = currency == "¥"
         decimals = 0 if is_jpy and latest["price"] > 100 else 2
 
         with c1:
@@ -2857,6 +2995,13 @@ elif page == "株式ビューア":
                 st.markdown("**この予測の原因（根拠）**")
                 for reason in mh.get("reasons", []):
                     st.markdown(f"- {reason}")
+                _render_midlong_range_block(
+                    ticker_code=ticker,
+                    currency=currency,
+                    key_prefix=f"stock_midlong_{ticker}",
+                    title="奇数週・数年先の予測レンジ（企業計画メモ付き）",
+                    note_title="各企業の計画内容メモ（公開情報ベース）",
+                )
             else:
                 st.info("時間軸予測グラフを生成できませんでした。市場時間中に再度お試しください。")
 
@@ -3814,6 +3959,14 @@ elif page == "FXビューア":
             st.markdown("**この予測の原因（根拠）**")
             for reason in fx_mh.get("reasons", []):
                 st.markdown(f"- {reason}")
+            fx_ccy = "¥" if ticker.endswith("JPY=X") else "$"
+            _render_midlong_range_block(
+                ticker_code=ticker,
+                currency=fx_ccy,
+                key_prefix=f"fx_midlong_{ticker}",
+                title="奇数週・数年先の予測レンジ（計画/テーマメモ付き）",
+                note_title="通貨テーマメモ（公開情報ベース）",
+            )
         else:
             st.info("時間軸予測グラフを生成できませんでした。市場時間中に再試行してください。")
 
@@ -5626,6 +5779,10 @@ elif page == "🔔 アラート":
             all_targets[f"[日本株] {k}"] = v
         for k, v in US_STOCKS.items():
             all_targets[f"[米国株] {k}"] = v
+        for k, v in OVERSEAS_STOCKS.items():
+            all_targets[f"[海外株] {k}"] = v
+        for k, v in BOND_SYMBOLS.items():
+            all_targets[f"[債券] {k}"] = v
         for k, v in CRYPTO_SYMBOLS.items():
             all_targets[f"[仮想通貨] {k}"] = v
 
@@ -5822,6 +5979,10 @@ elif page == "📈 バックテスト":
         all_targets[f"[日本株] {k}"] = v
     for k, v in US_STOCKS.items():
         all_targets[f"[米国株] {k}"] = v
+    for k, v in OVERSEAS_STOCKS.items():
+        all_targets[f"[海外株] {k}"] = v
+    for k, v in BOND_SYMBOLS.items():
+        all_targets[f"[債券] {k}"] = v
     for k, v in CRYPTO_SYMBOLS.items():
         all_targets[f"[仮想通貨] {k}"] = v
 
